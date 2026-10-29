@@ -1,0 +1,7 @@
+node_modules/
+credentials.json
+tokens/
+data/
+.env
+__pycache__/
+.venv/

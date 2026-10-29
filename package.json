@@ -1,0 +1,26 @@
+{
+  "name": "job-agent",
+  "version": "1.0.0",
+  "description": "Personal agent: recruiting domain",
+  "scripts": {
+    "auth": "tsx src/auth.ts",
+    "ingest": "tsx src/ingest.ts",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^18.0.9",
+    "googleapis": "^188.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module"
+}

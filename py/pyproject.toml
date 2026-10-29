@@ -1,0 +1,6 @@
+[project]
+name = "job-agent-py"
+version = "0.1.0"
+description = "Data side of the personal agent: labeling, evals, prompt experiments"
+requires-python = ">=3.12"
+dependencies = []
