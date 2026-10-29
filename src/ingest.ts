@@ -11,7 +11,14 @@ import { authorizedClient, isRevokedToken, listAccounts } from "./google.js";
 import { parseMessage } from "./gmail/parse.js";
 import { Throttle, withRetry, statusOf } from "./gmail/retry.js";
 
+const FLAGS = ["months", "account", "rate"];
 const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i += 2) {
+  if (!FLAGS.includes(args[i].replace(/^--/, "")) || !args[i].startsWith("--") || args[i + 1] === undefined) {
+    console.error(`Unexpected argument "${args[i]}". Usage: npm run ingest -- [--months N] [--rate N] [--account EMAIL]`);
+    process.exit(2);
+  }
+}
 const arg = (name: string) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? args[i + 1] : undefined;
@@ -52,7 +59,7 @@ async function syncAccount(email: string) {
 
   // Capture the history cursor BEFORE listing. Anything that arrives while we
   // sync is then covered by the next incremental sync instead of falling in a gap.
-  const { data: profile } = await gmail.users.getProfile({ userId: "me" });
+  const { data: profile } = await retry(() => gmail.users.getProfile({ userId: "me" }));
 
   const ids = await listMessageIds(gmail, `newer_than:${MONTHS}m -in:chats`, retry);
   const have = new Set(
