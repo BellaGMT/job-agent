@@ -2,6 +2,10 @@
   "name": "job-agent",
   "version": "1.0.0",
   "description": "Personal agent: recruiting domain",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "auth": "tsx src/auth.ts",
     "ingest": "tsx src/ingest.ts",
@@ -21,6 +25,5 @@
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
-  },
-  "type": "module"
+  }
 }
