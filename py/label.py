@@ -196,7 +196,7 @@ def show(row: sqlite3.Row, done: int, total: int) -> None:
 
 
 def ask_application_key(conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
-    """Same application must always get the exact same key, or Day 3's linking eval is noise."""
+    """The same application must always get the exact same key, or the linking eval measures labeling noise."""
     keys = [r[0] for r in conn.execute(
         "SELECT application_key FROM labels WHERE application_key IS NOT NULL "
         "GROUP BY application_key ORDER BY MAX(rowid) DESC"

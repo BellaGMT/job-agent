@@ -12,14 +12,14 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS accounts (
   email           TEXT PRIMARY KEY,
   added_at        TEXT NOT NULL DEFAULT (datetime('now')),
-  -- Gmail's change cursor, captured at the START of a full sync. Day 6 uses it
-  -- to fetch only what changed since, instead of re-listing everything.
+  -- Gmail's change cursor, captured at the START of a full sync, so incremental
+  -- syncs fetch only what changed since instead of re-listing everything.
   last_history_id TEXT,
   last_synced_at  TEXT
 );
 
 -- Raw email, one row per (inbox, message). The same email can exist in two
--- inboxes (forwarded, CC'd); rfc_message_id is how we'll dedupe that on Day 3.
+-- inboxes (forwarded, CC'd); rfc_message_id dedupes across inboxes.
 CREATE TABLE IF NOT EXISTS messages (
   account        TEXT NOT NULL REFERENCES accounts(email),
   gmail_id       TEXT NOT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_rfc  ON messages(rfc_message_id);
 CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(internal_date);
 
--- Your hand labels: ground truth for every eval from Day 2 on.
+-- Hand labels: ground truth for classification and linking evals.
 CREATE TABLE IF NOT EXISTS labels (
   account         TEXT NOT NULL,
   gmail_id        TEXT NOT NULL,

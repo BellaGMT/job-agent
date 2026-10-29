@@ -3,9 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { google, Auth } from "googleapis";
 
-// Read-only on purpose. Least privilege: Day 1 only needs to read mail.
-// Calendar and send scopes get added on the days that need them, and the user
-// re-consents then. An agent should never hold permissions it isn't using yet.
+// Least privilege: read-only until a feature needs more. Calendar and send
+// scopes are requested when those features ship, with explicit re-consent.
 export const SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 
 const CREDENTIALS_PATH = "credentials.json";
