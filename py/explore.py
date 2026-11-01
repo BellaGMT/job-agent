@@ -2,6 +2,7 @@
 
 import sqlite3
 from collections import Counter, defaultdict
+import sys
 
 from label import KEYWORDS, DB_PATH, sender_domain
 
@@ -24,12 +25,21 @@ for r in rows:
     if KEYWORDS.search(text):
         matches[d] += 1
     else:
-        non_matches[d].append(r["subject"])  
-        # non_matches[d].append((r["from_addr"], r["subject"] or "(no subject)"))
+        #non_matches[d].append(r["subject"])  
+        non_matches[d].append((r["from_addr"] or "?", r["subject"] or "(no subject)"))
         
 
-print(f"{'domain':40} {'emails':>7} {'keyword hits':>13} {'non-matches':>100}")
+print(f"{'domain':40} {'emails':>7} {'keyword hits':>13}")
 for d, n in emails.most_common(20):
-    non_match_str = ", ".join(non_matches[d]) 
-    print(f"{d:40} {n:7} {matches[d]:13} {non_match_str:100}")
+    print(f"{d:40} {n:7} {matches[d]:13}")
 print(f"\n{len(rows)} emails from {len(emails)} domains")
+
+# Domains named on the command line: list the emails the keyword filter missed.
+for d in sys.argv[1:]:
+    d = d.lower()
+    if d not in emails:
+        print(f"\n{d}: no emails from this domain")
+        continue
+    print(f"\n{d}: {len(non_matches[d])} of {emails[d]} emails with no keyword match")
+    for sender, subject in non_matches[d]:
+        print(f"  {sender[:40]:40}  {subject[:70]}")
