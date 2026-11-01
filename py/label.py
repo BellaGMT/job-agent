@@ -70,10 +70,15 @@ def connect() -> sqlite3.Connection:
     )
     return conn
 
+# naive: "x.co.uk" -> "co.uk".
+def base_domain(domain: str | None) -> str:
+    parts = (domain or "").split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else "?"
+
 
 def sender_domain(from_addr: str | None) -> str:
     m = re.search(r"@([\w.-]+)", from_addr or "")
-    return m.group(1).lower() if m else "?"
+    return base_domain(m.group(1).lower() if m else "?")
 
 
 # ---------------------------------------------------------------- sample

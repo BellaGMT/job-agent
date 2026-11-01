@@ -72,7 +72,7 @@ async function syncAccount(email: string) {
   console.log(`${email}: ${ids.length} messages in window, ${todo.length} new`);
 
   let done = 0;
-  await runPool(todo, CONCURRENCY, async (id) => {
+  await runPool(todo, CONCURRENCY, async (id) => { 
     await pace.next();
     const { data } = await retry(() => gmail.users.messages.get({ userId: "me", id, format: "full" }));
     const m = parseMessage(data);
