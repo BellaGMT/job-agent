@@ -179,6 +179,10 @@ def prompt_label(conn: sqlite3.Connection, row: sqlite3.Row, header: str) -> str
         return "invalid"
 
     key = None if category in NO_KEY else ask_application_key(conn, row)
+    if key == "b":
+        return "invalid"  # nothing saved; the same email is shown again
+    if key == "q":
+        return "quit"
     note = (ask("Note: ") or None) if wants_note else None
     conn.execute(
         "INSERT OR REPLACE INTO labels (account, gmail_id, category, application_key, notes) "
@@ -222,13 +226,15 @@ def ask_application_key(conn: sqlite3.Connection, row: sqlite3.Row) -> str | Non
     haystack = f"{row['from_addr']} {row['subject']} {row['body_text']}".lower()
     suggestions = [k for k in keys if k.split(" | ")[0].lower() in haystack][:9] or keys[:5]
 
-    print("Application as 'Company | Role' (role unknown: 'Company | ?'). Enter = none.")
+    print("Application as 'Company | Role' (role unknown: 'Company | ?'). Enter = none, b = back, q = quit.")
     for i, k in enumerate(suggestions, 1):
         print(f"  {i}) {k}")
     while True:
         raw = ask("app> ")
         if not raw:
             return None
+        if raw in ("b", "q"):
+            return raw  # sentinel: caller goes back to the category or quits
         if raw.isdigit() and 1 <= int(raw) <= len(suggestions):
             return suggestions[int(raw) - 1]
         if "|" not in raw:
