@@ -1,6 +1,6 @@
 """Tests for the classifier plumbing. No network: a fake client stands in for the API."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -17,7 +17,7 @@ def make_email(gmail_id="g1", body="Thanks for applying to Stripe.", account="me
         from_addr="Stripe <no-reply@greenhouse.io>",
         to_addr=account,
         subject="Application received",
-        sent_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        sent_at=datetime(2026, 9, 1, tzinfo=UTC),
         body=body,
     )
 
@@ -119,7 +119,13 @@ def test_corrupt_cache_file_is_a_miss_and_gets_overwritten(tmp_path):
 
 def test_cache_writes_leave_no_temp_files(tmp_path):
     client = FakeClient()
-    classify_many([make_email(gmail_id=f"g{number}") for number in range(5)], prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
+    classify_many(
+        [make_email(gmail_id=f"g{number}") for number in range(5)],
+        prompt="P",
+        model="m",
+        parse=client.parse,
+        cache_dir=tmp_path,
+    )
     names = [path.name for path in tmp_path.iterdir()]
     assert len(names) == 5 and all(name.endswith(".json") for name in names)
 

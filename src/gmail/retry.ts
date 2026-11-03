@@ -25,7 +25,9 @@ function errorReasons(err: unknown): string[] {
   const error = isRecord(data) ? data["error"] : undefined;
   const errors = isRecord(error) ? error["errors"] : undefined;
   if (!Array.isArray(errors)) return [];
-  return errors.map((entry: unknown) => stringField(entry, "reason")).filter((reason): reason is string => reason !== undefined);
+  return errors
+    .map((entry: unknown) => stringField(entry, "reason"))
+    .filter((reason): reason is string => reason !== undefined);
 }
 
 export function isRateLimit(err: unknown): boolean {

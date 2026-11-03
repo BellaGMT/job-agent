@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { openDb } from "./db.js";
 import type { ParsedMessage } from "./gmail/parse.js";
 import { MessageStore } from "./store.js";

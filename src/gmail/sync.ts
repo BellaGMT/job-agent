@@ -3,10 +3,10 @@
 // The Gmail API sits behind `MailSource` so the sync logic can be tested with
 // a fake, and so API responses are validated in one place (`gmailSource`).
 import type { gmail_v1 } from "googleapis";
-import type { MessageStore } from "../store.js";
 import { runPool } from "../pool.js";
+import type { MessageStore } from "../store.js";
 import { Pacer } from "./pacer.js";
-import { MalformedMessageError, parseMessage, type ParsedMessage } from "./parse.js";
+import { MalformedMessageError, type ParsedMessage, parseMessage } from "./parse.js";
 import { statusOf, Throttle, withRetry } from "./retry.js";
 
 export interface MailSource {
@@ -48,7 +48,12 @@ export interface SyncResult {
  * wasn't stored, so the cursor is NOT advanced and the next full sync retries
  * it. Anything else (network, auth, database) aborts the sync.
  */
-export async function syncAccount(source: MailSource, store: MessageStore, email: string, options: SyncOptions): Promise<SyncResult> {
+export async function syncAccount(
+  source: MailSource,
+  store: MessageStore,
+  email: string,
+  options: SyncOptions,
+): Promise<SyncResult> {
   const pace = new Pacer(options.ratePerSecond);
   const retry = retrier(pace, options.log);
   store.ensureAccount(email);
@@ -125,7 +130,11 @@ async function listAllIds(source: MailSource, query: string, retry: Retry): Prom
 }
 
 /** A message deleted between listing and fetching returns 404: expected, not an error. */
-async function fetchUnlessDeleted(source: MailSource, id: string, retry: Retry): Promise<gmail_v1.Schema$Message | undefined> {
+async function fetchUnlessDeleted(
+  source: MailSource,
+  id: string,
+  retry: Retry,
+): Promise<gmail_v1.Schema$Message | undefined> {
   try {
     return await retry(() => source.getMessage(id));
   } catch (err) {
@@ -144,7 +153,9 @@ export function gmailSource(gmail: gmail_v1.Gmail): MailSource {
     },
     async listIds(query, pageToken) {
       const { data } = await gmail.users.messages.list({ userId: "me", q: query, maxResults: 500, pageToken });
-      const ids = (data.messages ?? []).map((listed) => listed.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+      const ids = (data.messages ?? [])
+        .map((listed) => listed.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
       return data.nextPageToken ? { ids, nextPageToken: data.nextPageToken } : { ids };
     },
     async getMessage(id) {

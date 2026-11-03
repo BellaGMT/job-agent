@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { runPool } from "./pool.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -41,5 +41,8 @@ test("empty input and pool larger than input both work", async () => {
 });
 
 test("rejects a pool size below 1", async () => {
-  await assert.rejects(runPool([1], 0, async () => {}), /at least 1/);
+  await assert.rejects(
+    runPool([1], 0, async () => {}),
+    /at least 1/,
+  );
 });

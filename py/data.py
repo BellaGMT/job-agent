@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from db import DB_PATH, connect
@@ -42,7 +42,7 @@ def _email(row: sqlite3.Row) -> Email:
         from_addr=row["from_addr"] or "",
         to_addr=row["to_addr"] or "",
         subject=row["subject"] or "",
-        sent_at=datetime.fromtimestamp(row["internal_date"] / 1000, tz=timezone.utc),
+        sent_at=datetime.fromtimestamp(row["internal_date"] / 1000, tz=UTC),
         body=row["body_text"] or "",
     )
 

@@ -1,6 +1,6 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseMessage, htmlToText, decodeEntities } from "./parse.js";
+import { test } from "node:test";
+import { decodeEntities, htmlToText, parseMessage } from "./parse.js";
 
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64url");
 
@@ -19,7 +19,7 @@ test("prefers a real text/plain part and reads headers case-insensitively", () =
         { name: "Message-Id", value: "<abc@workday>" },
       ],
       parts: [
-        { mimeType: "text/plain", body: { data: b64("Hi Milca,\n\n" + "Thanks for applying. ".repeat(15)) } },
+        { mimeType: "text/plain", body: { data: b64(`Hi Milca,\n\n${"Thanks for applying. ".repeat(15)}`) } },
         { mimeType: "text/html", body: { data: b64("<p>html version</p>") } },
       ],
     },

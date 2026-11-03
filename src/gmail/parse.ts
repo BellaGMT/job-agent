@@ -34,7 +34,8 @@ const MAX_BODY_CHARS = 50_000;
 export function parseMessage(message: gmail_v1.Schema$Message): ParsedMessage {
   // Number(null) and Number("") are 0, so check the raw string: a missing date
   // must be rejected, not stored as 1970.
-  const internalDate = typeof message.internalDate === "string" && /^\d+$/.test(message.internalDate) ? Number(message.internalDate) : NaN;
+  const internalDate =
+    typeof message.internalDate === "string" && /^\d+$/.test(message.internalDate) ? Number(message.internalDate) : NaN;
   if (!message.id || !message.threadId || !Number.isFinite(internalDate)) {
     throw new MalformedMessageError(`Gmail message ${message.id ?? "(no id)"} is missing its id, thread id or date.`);
   }
@@ -116,7 +117,7 @@ export function decodeEntities(text: string): string {
 
 function clean(text: string): string {
   return text
-    .replace(/[​‌‍­͏﻿]/g, "") // invisible preheader padding
+    .replace(/\u200b|\u200c|\u200d|\u00ad|\u034f|\ufeff/g, "") // invisible preheader padding (zero-width spaces, soft hyphens, BOM)
     .replace(/\r\n/g, "\n")
     .replace(/[ \t ]+/g, " ")
     .replace(/ *\n */g, "\n")

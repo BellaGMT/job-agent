@@ -1,7 +1,7 @@
 // Google OAuth plumbing: client secrets, per-inbox tokens, authorized clients.
 import fs from "node:fs";
 import path from "node:path";
-import { google, Auth } from "googleapis";
+import { type Auth, google } from "googleapis";
 import { isRecord, stringField } from "./guards.js";
 
 // Least privilege: read-only until a feature needs more. Calendar and send
@@ -14,7 +14,8 @@ export const TOKEN_DIR = "tokens";
 // Account emails become token file names. The requirement is that a name can't
 // escape the token directory or be unusable as a file name on Windows; beyond
 // that, any address Google returns is accepted (Workspace allows e.g. o'brien@).
-const UNSAFE_FILENAME_CHARS = /[\/\\:*?"<>|\u0000-\u001f]/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what this rejects
+const UNSAFE_FILENAME_CHARS = /[/\\:*?"<>|\u0000-\u001f]/;
 
 export function isSafeAccountName(email: string): boolean {
   const at = email.indexOf("@");
@@ -64,7 +65,8 @@ export function parseCredentials(tokenData: unknown): Auth.Credentials {
   if (scope) credentials.scope = scope;
   const expiryDate = tokenData["expiry_date"];
   if (typeof expiryDate === "number") credentials.expiry_date = expiryDate;
-  if (!credentials.access_token && !credentials.refresh_token) throw new Error("Token data has no access or refresh token.");
+  if (!credentials.access_token && !credentials.refresh_token)
+    throw new Error("Token data has no access or refresh token.");
   return credentials;
 }
 

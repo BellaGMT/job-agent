@@ -27,7 +27,9 @@ export function parseIngestArgs(argv: string[]): IngestArgs {
   const months = parseNumberInRange(values.get("months"), DEFAULTS.months, 1, 120, true, "--months");
   const ratePerSecond = parseNumberInRange(values.get("rate"), DEFAULTS.ratePerSecond, 0.5, 50, false, "--rate");
   const account = values.get("account");
-  return account === undefined ? { months, ratePerSecond } : { months, ratePerSecond, account: assertSafeEmail(account) };
+  return account === undefined
+    ? { months, ratePerSecond }
+    : { months, ratePerSecond, account: assertSafeEmail(account) };
 }
 
 function parseNumberInRange(

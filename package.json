@@ -10,7 +10,10 @@
     "auth": "tsx src/auth.ts",
     "ingest": "tsx src/ingest.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "check": "npm run typecheck && npm run lint && npm test"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +23,7 @@
     "googleapis": "^188.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.4",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",

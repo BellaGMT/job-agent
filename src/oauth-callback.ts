@@ -52,7 +52,8 @@ function waitForCode(server: http.Server, base: string, expectedState: string, t
       const error = params.get("error");
       const code = params.get("code");
       if (error) return fail("Sign-in was cancelled or failed.", `Google returned an error: ${error}`);
-      if (params.get("state") !== expectedState) return fail("Unexpected sign-in response.", "State mismatch; ignoring this callback.");
+      if (params.get("state") !== expectedState)
+        return fail("Unexpected sign-in response.", "State mismatch; ignoring this callback.");
       if (!code) return fail("Missing authorization code.", "Callback had no authorization code.");
       reply(200, "Inbox connected. You can close this tab.");
       resolve(code);

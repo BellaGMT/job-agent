@@ -1,7 +1,8 @@
 // Opening and migrating the SQLite database shared by the TypeScript and Python sides.
-import Database from "better-sqlite3";
+
 import fs from "node:fs";
 import path from "node:path";
+import Database from "better-sqlite3";
 
 // AGENT_DB lets tests point at a throwaway database instead of your real one.
 export const DB_PATH = process.env["AGENT_DB"] ?? "data/agent.db";

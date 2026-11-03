@@ -6,10 +6,10 @@
 //
 // Resumable: messages already stored are skipped, so Ctrl-C and re-run is safe.
 import { google } from "googleapis";
-import { parseIngestArgs, type IngestArgs } from "./cli-args.js";
+import { type IngestArgs, parseIngestArgs } from "./cli-args.js";
 import { openDb } from "./db.js";
-import { gmailSource, syncAccount } from "./gmail/sync.js";
 import { statusOf } from "./gmail/retry.js";
+import { gmailSource, syncAccount } from "./gmail/sync.js";
 import { authorizedClient, isRevokedToken, listAccounts } from "./google.js";
 import { errorMessage } from "./guards.js";
 import { MessageStore } from "./store.js";
@@ -35,9 +35,12 @@ async function main(args: IngestArgs): Promise<void> {
           concurrency: CONCURRENCY,
           log: (line) => console.log(line),
         });
-        if (syncResult.vanished) console.log(`  ${syncResult.vanished} message(s) were deleted before they could be fetched`);
+        if (syncResult.vanished)
+          console.log(`  ${syncResult.vanished} message(s) were deleted before they could be fetched`);
         if (!syncResult.completed) {
-          console.warn(`  ${syncResult.malformed.length} malformed message(s) skipped; sync not marked complete, they'll be retried next run`);
+          console.warn(
+            `  ${syncResult.malformed.length} malformed message(s) skipped; sync not marked complete, they'll be retried next run`,
+          );
           process.exitCode = 1;
         }
       } catch (err) {
@@ -47,7 +50,9 @@ async function main(args: IngestArgs): Promise<void> {
           console.error(`${email}: access expired or revoked. Run: npm run auth (pick ${email})`);
         } else {
           const status = statusOf(err);
-          console.error(`${email}: sync failed${status ? ` (HTTP ${status})` : ""}: ${errorMessage(err)}. Already-fetched messages are saved; re-run to continue.`);
+          console.error(
+            `${email}: sync failed${status ? ` (HTTP ${status})` : ""}: ${errorMessage(err)}. Already-fetched messages are saved; re-run to continue.`,
+          );
         }
       }
     }

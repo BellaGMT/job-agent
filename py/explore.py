@@ -1,7 +1,7 @@
 """Top sender domains, and how many of their emails the keyword pre-filter matches.
 
-    uv run python explore.py                         # top 20 table
-    uv run python explore.py tesla.com google.com    # plus non-matching emails for those domains
+uv run python explore.py                         # top 20 table
+uv run python explore.py tesla.com google.com    # plus non-matching emails for those domains
 """
 
 from __future__ import annotations

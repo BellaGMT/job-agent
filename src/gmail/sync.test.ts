@@ -1,9 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import type { gmail_v1 } from "googleapis";
 import { openDb } from "../db.js";
 import { MessageStore } from "../store.js";
-import { syncAccount, type MailSource } from "./sync.js";
+import { type MailSource, syncAccount } from "./sync.js";
 
 const EMAIL = "me@example.com";
 const OPTS = { months: 3, ratePerSecond: 1000, concurrency: 3, log: () => {} };

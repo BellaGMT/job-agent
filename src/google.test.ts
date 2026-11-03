@@ -1,8 +1,8 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { test } from "node:test";
 import {
   isRevokedToken,
   isSafeAccountName,
@@ -21,7 +21,13 @@ test("client secrets: accepts installed or web sections, rejects anything else",
     clientSecret: "s",
   });
   assert.equal(parseClientSecrets({ web: { client_id: "id", client_secret: "s" } }).clientId, "id");
-  for (const bad of [null, [], {}, { installed: { client_id: "id" } }, { installed: { client_id: 1, client_secret: "s" } }]) {
+  for (const bad of [
+    null,
+    [],
+    {},
+    { installed: { client_id: "id" } },
+    { installed: { client_id: 1, client_secret: "s" } },
+  ]) {
     assert.throws(() => parseClientSecrets(bad), /doesn't look like an OAuth client file/);
   }
 });
@@ -47,7 +53,19 @@ test("accepts real-world addresses, rejects names that could escape the director
   for (const ok of ["me@gmail.com", "o'brien@company.com", "first.last+jobs@sub.example.co.uk"]) {
     assert.equal(isSafeAccountName(ok), true, ok);
   }
-  for (const bad of ["../evil", "a/b@x.com", "a\\b@x.com", "..@x.com", ".a@x.com", "a@@x.com", "@x.com", "a@", "a b@x.com", "a:b@x.com", ""]) {
+  for (const bad of [
+    "../evil",
+    "a/b@x.com",
+    "a\\b@x.com",
+    "..@x.com",
+    ".a@x.com",
+    "a@@x.com",
+    "@x.com",
+    "a@",
+    "a b@x.com",
+    "a:b@x.com",
+    "",
+  ]) {
     assert.equal(isSafeAccountName(bad), false, bad);
   }
 });

@@ -10,7 +10,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "mypy>=1.11"]
+dev = [
+    "pytest>=8",
+    "mypy>=1.11",
+    "ruff==0.15.4",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -30,3 +34,17 @@ disallow_untyped_calls = false
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pep8-naming, bugbear, pyupgrade, simplify, ruff-specific
+select = ["E", "W", "F", "I", "N", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Maintainer exercise scaffolding (see CLAUDE.md): imports provided for the
+# functions still to be written, and the spec file's short `R` result helper.
+"eval_classify.py" = ["F401"]
+"tests/test_eval_classify.py" = ["N802"]

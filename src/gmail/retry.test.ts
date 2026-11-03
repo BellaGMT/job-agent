@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { isRateLimit, isRetryable, retryAfterMs, Throttle, withRetry } from "./retry.js";
 
 // Shape of the real error Gmail returned during a 3-month sync.

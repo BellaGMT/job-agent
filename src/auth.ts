@@ -7,9 +7,9 @@
 //   4. Exchange code -> tokens (access + refresh), save them under tokens/.
 // PKCE and `state` stop another local process from hijacking or forging step 3.
 import crypto from "node:crypto";
-import { google, Auth } from "googleapis";
+import { Auth, google } from "googleapis";
 import { openDb } from "./db.js";
-import { assertSafeEmail, newOAuthClient, parseCredentials, saveToken, SCOPES } from "./google.js";
+import { assertSafeEmail, newOAuthClient, parseCredentials, SCOPES, saveToken } from "./google.js";
 import { errorMessage } from "./guards.js";
 import { startCallbackServer } from "./oauth-callback.js";
 
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
       code_challenge: codeChallenge,
       code_challenge_method: Auth.CodeChallengeMethod.S256,
     });
-    console.log("\nOpen this URL and pick the inbox to connect:\n\n" + url + "\n");
+    console.log(`\nOpen this URL and pick the inbox to connect:\n\n${url}\n`);
 
     const code = await callback.waitForCode(state, SIGN_IN_TIMEOUT_MS);
     const { tokens } = await client.getToken({ code, codeVerifier });

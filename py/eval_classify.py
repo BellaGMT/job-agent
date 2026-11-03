@@ -149,7 +149,7 @@ def main() -> None:
     print(f"Classifying {len(items)} emails with {args.model} (cached results are reused)...")
     outputs = classify_many([item.email for item in items], prompt=prompt, model=args.model, workers=args.workers)
 
-    results = [Result(item.category, output.category, item.bucket) for item, output in zip(items, outputs)]
+    results = [Result(item.category, output.category, item.bucket) for item, output in zip(items, outputs, strict=True)]
     errors = [
         {
             "subject": item.email.subject,
@@ -159,7 +159,7 @@ def main() -> None:
             "predicted": output.category,
             "reason": output.reason,
         }
-        for item, output in zip(items, outputs)
+        for item, output in zip(items, outputs, strict=True)
         if output.category != item.category
     ]
     summary = print_report(results, errors)

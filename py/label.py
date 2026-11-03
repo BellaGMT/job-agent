@@ -126,7 +126,10 @@ def cmd_sample(connection: sqlite3.Connection, sample_size: int, seed: int, keyw
     connection.execute("DELETE FROM label_queue")
     connection.executemany(
         "INSERT INTO label_queue (position, account, gmail_id, bucket) VALUES (?, ?, ?, ?)",
-        [(position, message["account"], message["gmail_id"], bucket) for position, (message, bucket) in enumerate(picked)],
+        [
+            (position, message["account"], message["gmail_id"], bucket)
+            for position, (message, bucket) in enumerate(picked)
+        ],
     )
     connection.commit()
     bucket_counts = Counter(bucket for _, bucket in picked)
@@ -157,9 +160,9 @@ def cmd_label(connection: sqlite3.Connection) -> None:
     skipped_positions: set[int] = set()
     while True:
         labeled_count = int(
-            connection.execute(
-                "SELECT COUNT(*) FROM label_queue q JOIN labels l USING (account, gmail_id)"
-            ).fetchone()[0]
+            connection.execute("SELECT COUNT(*) FROM label_queue q JOIN labels l USING (account, gmail_id)").fetchone()[
+                0
+            ]
         )
         email = next_unlabeled(connection, skipped_positions)
         if email is None:
@@ -294,7 +297,8 @@ def normalize_key(raw_key: str, known_keys: Iterable[str]) -> str:
 
 def undo_last(connection: sqlite3.Connection) -> None:
     last_label = connection.execute(
-        "SELECT l.rowid, m.subject FROM labels l JOIN messages m USING (account, gmail_id) ORDER BY l.rowid DESC LIMIT 1"
+        "SELECT l.rowid, m.subject FROM labels l JOIN messages m USING (account, gmail_id) "
+        "ORDER BY l.rowid DESC LIMIT 1"
     ).fetchone()
     if last_label:
         connection.execute("DELETE FROM labels WHERE rowid = ?", (last_label["rowid"],))

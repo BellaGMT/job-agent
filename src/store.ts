@@ -39,12 +39,17 @@ export class MessageStore {
   }
 
   cursor(email: string): string | undefined {
-    const historyId: unknown = this.db.prepare("SELECT last_history_id FROM accounts WHERE email = ?").pluck().get(email);
+    const historyId: unknown = this.db
+      .prepare("SELECT last_history_id FROM accounts WHERE email = ?")
+      .pluck()
+      .get(email);
     return typeof historyId === "string" ? historyId : undefined;
   }
 
   countsByAccount(): { account: string; messages: number }[] {
-    const rows: unknown[] = this.db.prepare("SELECT account, COUNT(*) AS message_count FROM messages GROUP BY account").all();
+    const rows: unknown[] = this.db
+      .prepare("SELECT account, COUNT(*) AS message_count FROM messages GROUP BY account")
+      .all();
     return rows.flatMap((row) => {
       const account = stringField(row, "account");
       const messageCount = isRecord(row) ? row["message_count"] : undefined;

@@ -212,6 +212,6 @@ if __name__ == "__main__":
 
     items = load_eval_set()[-3:]
     outputs = classify_many([item.email for item in items], prompt=load_prompt())
-    for item, classification in zip(items, outputs):
+    for item, classification in zip(items, outputs, strict=True):
         print(f"{item.email.subject[:60]!r}\n  expected {item.category}, got {classification.category}")
         print(f"  {json.dumps(classification.model_dump())}\n")

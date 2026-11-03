@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { startCallbackServer } from "./oauth-callback.js";
 
 async function withServer(fn: (callbackServer: Awaited<ReturnType<typeof startCallbackServer>>) => Promise<void>) {

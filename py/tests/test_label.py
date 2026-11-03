@@ -143,7 +143,11 @@ def test_add_targeted_appends_and_ignores_already_queued(database: sqlite3.Conne
     emails = database.execute("SELECT account, gmail_id FROM messages ORDER BY gmail_id").fetchall()
     assert add_targeted(database, emails) == 2
     rows = database.execute("SELECT gmail_id, position, bucket FROM label_queue ORDER BY position").fetchall()
-    assert [(row["gmail_id"], row["bucket"]) for row in rows] == [("a", "keyword"), ("b", "targeted"), ("c", "targeted")]
+    assert [(row["gmail_id"], row["bucket"]) for row in rows] == [
+        ("a", "keyword"),
+        ("b", "targeted"),
+        ("c", "targeted"),
+    ]
 
 
 def test_queue_rejects_unknown_buckets(database: sqlite3.Connection) -> None:
