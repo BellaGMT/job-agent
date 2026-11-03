@@ -22,18 +22,26 @@ export interface ParsedMessage {
 // Long enough for any recruiting email; stops a 2 MB newsletter bloating the DB.
 const MAX_BODY_CHARS = 50_000;
 
+/**
+ * Validate and flatten one message from the Gmail API.
+ * Throws if the fields every stored row depends on (id, thread, date) are missing.
+ */
 export function parseMessage(msg: gmail_v1.Schema$Message): ParsedMessage {
+  const internalDate = Number(msg.internalDate);
+  if (!msg.id || !msg.threadId || !Number.isFinite(internalDate)) {
+    throw new Error(`Gmail message ${msg.id ?? "(no id)"} is missing its id, thread id or date.`);
+  }
   const headers = msg.payload?.headers ?? [];
   const header = (name: string) =>
     headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? null;
 
   return {
-    gmailId: msg.id!,
-    threadId: msg.threadId!,
+    gmailId: msg.id,
+    threadId: msg.threadId,
     rfcMessageId: header("Message-ID"),
     inReplyTo: header("In-Reply-To"),
     referencesIds: header("References"),
-    internalDate: Number(msg.internalDate),
+    internalDate,
     from: header("From"),
     to: header("To"),
     cc: header("Cc"),
@@ -89,9 +97,10 @@ const NAMED: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", q
 
 export function decodeEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
-    if (e[0] === "#") {
-      const n = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+    if (e.startsWith("#")) {
+      const hex = e[1] === "x" || e[1] === "X";
+      const n = hex ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m; // out-of-range code points would throw
     }
     return NAMED[e.toLowerCase()] ?? m;
   });

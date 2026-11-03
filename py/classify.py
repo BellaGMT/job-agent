@@ -15,12 +15,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from data import Email
 
@@ -31,6 +33,8 @@ DEFAULT_MODEL = os.environ.get("CLASSIFY_MODEL", "claude-haiku-5-5")
 DEFAULT_PROMPT = Path(__file__).resolve().parent / "prompts" / "classify.md"
 CACHE_DIR = ROOT / "data" / "cache" / "classify"
 MAX_BODY_CHARS = 8_000  # long enough for any recruiting email; caps cost on newsletters
+REQUEST_TIMEOUT_S = 60.0
+MAX_RETRIES = 4  # the SDK retries 429/5xx/timeouts with exponential backoff and honors Retry-After
 
 Category = Literal[
     "application_confirmation",
@@ -66,11 +70,19 @@ class Classification(BaseModel):
         return v.strip().lower() if isinstance(v, str) else v
 
 
-class MessagesClient(Protocol):
-    """The slice of the Anthropic client we use; tests pass a fake."""
+class ClassificationError(RuntimeError):
+    """The API answered but gave no usable classification (refusal, truncation)."""
 
-    @property
-    def messages(self): ...
+
+# `client.messages.parse` from the Anthropic SDK, or a fake in tests.
+ParseFn = Callable[..., object]
+
+
+def default_parse() -> ParseFn:
+    from anthropic import Anthropic
+
+    # Reads ANTHROPIC_API_KEY. One client is safe to share across threads.
+    return Anthropic(timeout=REQUEST_TIMEOUT_S, max_retries=MAX_RETRIES).messages.parse
 
 
 def format_email(email: Email) -> str:
@@ -105,29 +117,24 @@ def classify(
     *,
     prompt: str,
     model: str = DEFAULT_MODEL,
-    client: MessagesClient | None = None,
+    parse: ParseFn | None = None,
     cache_dir: Path | None = CACHE_DIR,
 ) -> Classification:
     path = cache_dir / f"{cache_key(model, prompt, email)}.json" if cache_dir else None
-    if path and path.exists():
-        return Classification.model_validate_json(path.read_text(encoding="utf-8"))
+    cached = _read_cache(path) if path else None
+    if cached:
+        return cached
 
-    if client is None:
-        from anthropic import Anthropic
-
-        client = Anthropic()  # reads ANTHROPIC_API_KEY; retries 429/5xx itself
-    response = client.messages.parse(
+    response = (parse or default_parse())(
         model=model,
         max_tokens=1024,
         system=prompt,
         messages=[{"role": "user", "content": format_email(email)}],
         output_format=Classification,
     )
-    result: Classification = response.parsed_output
-
+    result = _validated(response)
     if path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+        _write_cache(path, result)
     return result
 
 
@@ -137,21 +144,44 @@ def classify_many(
     prompt: str,
     model: str = DEFAULT_MODEL,
     workers: int = 4,
-    client: MessagesClient | None = None,
+    parse: ParseFn | None = None,
     cache_dir: Path | None = CACHE_DIR,
 ) -> list[Classification]:
-    """Classify in parallel; results come back in the same order as `emails`."""
-    if client is None:
-        from anthropic import Anthropic
+    """Classify in parallel; results come back in the same order as `emails`.
 
-        client = Anthropic()  # one client shared by all threads (it's thread-safe)
+    If one call fails, the error propagates, but every result already written
+    to the cache is kept, so a re-run resumes instead of starting over.
+    """
+    shared = parse or default_parse()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(
-            pool.map(
-                lambda e: classify(e, prompt=prompt, model=model, client=client, cache_dir=cache_dir),
-                emails,
-            )
-        )
+        return list(pool.map(lambda e: classify(e, prompt=prompt, model=model, parse=shared, cache_dir=cache_dir), emails))
+
+
+def _validated(response: object) -> Classification:
+    """Don't trust the response shape: a refusal or a max_tokens cut-off yields no parsed output."""
+    parsed = getattr(response, "parsed_output", None)
+    if isinstance(parsed, Classification):
+        return parsed
+    stop = getattr(response, "stop_reason", "unknown")
+    raise ClassificationError(f"No valid classification in the response (stop_reason={stop}).")
+
+
+def _read_cache(path: Path) -> Classification | None:
+    """A missing or unreadable cache file is a cache miss, never a crash."""
+    try:
+        return Classification.model_validate_json(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValidationError, ValueError):
+        return None  # corrupt or from an older schema: re-classify and overwrite
+
+
+def _write_cache(path: Path, result: Classification) -> None:
+    """Write to a temp file and rename, so a crash mid-write can't leave a half file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load_prompt(path: Path = DEFAULT_PROMPT) -> str:

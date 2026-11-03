@@ -80,3 +80,12 @@ test("entity decoding handles numeric, hex and unknown entities", () => {
   assert.equal(decodeEntities("&#39;hi&#x2019; &bogus; &AMP;"), "'hi’ &bogus; &");
   assert.equal(htmlToText("a<br/>b<!-- x --><td>c</td>"), "a\nb c");
 });
+
+test("rejects messages missing the fields every row depends on", () => {
+  assert.throws(() => parseMessage({ id: "x", internalDate: "1" }), /missing its id, thread id or date/);
+  assert.throws(() => parseMessage({ id: "x", threadId: "t", internalDate: "not a date" }), /missing/);
+});
+
+test("out-of-range numeric entities are left as written instead of throwing", () => {
+  assert.equal(decodeEntities("&#99999999; &#X41;"), "&#99999999; A");
+});

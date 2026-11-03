@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -46,14 +47,13 @@ def _email(r: sqlite3.Row) -> Email:
 
 def load_eval_set() -> list[LabeledEmail]:
     """Every labeled email, oldest first."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """SELECT m.*, q.bucket, l.category, l.application_key
-           FROM labels l
-           JOIN messages m USING (account, gmail_id)
-           JOIN label_queue q USING (account, gmail_id)
-           ORDER BY m.internal_date"""
-    ).fetchall()
-    conn.close()
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT m.*, q.bucket, l.category, l.application_key
+               FROM labels l
+               JOIN messages m USING (account, gmail_id)
+               JOIN label_queue q USING (account, gmail_id)
+               ORDER BY m.internal_date"""
+        ).fetchall()
     return [LabeledEmail(_email(r), r["bucket"], r["category"], r["application_key"]) for r in rows]

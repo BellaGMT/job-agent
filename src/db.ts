@@ -1,14 +1,12 @@
+// Opening and migrating the SQLite database shared by the TypeScript and Python sides.
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 
 // AGENT_DB lets tests point at a throwaway database instead of your real one.
-export const DB_PATH = process.env.AGENT_DB ?? "data/agent.db";
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-export const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+export const DB_PATH = process.env["AGENT_DB"] ?? "data/agent.db";
 
-db.exec(`
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS accounts (
   email           TEXT PRIMARY KEY,
   added_at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -53,4 +51,19 @@ CREATE TABLE IF NOT EXISTS labels (
   PRIMARY KEY (account, gmail_id),
   FOREIGN KEY (account, gmail_id) REFERENCES messages(account, gmail_id)
 );
-`);
+`;
+
+/** Create missing tables and indexes. Safe to run on every start. */
+export function migrate(db: Database.Database): void {
+  db.exec(SCHEMA);
+}
+
+/** Open (creating if needed) and migrate the database. Pass ":memory:" in tests. */
+export function openDb(file: string = DB_PATH): Database.Database {
+  if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
+  const db = new Database(file);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON"); // SQLite ignores REFERENCES clauses unless this is on
+  migrate(db);
+  return db;
+}

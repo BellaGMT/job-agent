@@ -102,16 +102,18 @@ def fmt(x: float | None) -> str:
     return "   -" if x is None else f"{x:4.0%}"
 
 
-def print_report(results: list[Result], errors: list[dict]) -> dict:
+def print_report(results: list[Result], errors: list[dict[str, str]]) -> dict[str, object]:
     caught, total = recruiting_recall(results)
-    summary = {
+    overall = accuracy(results)
+    by_bucket = accuracy_by_bucket(results)
+    summary: dict[str, object] = {
         "n": len(results),
-        "accuracy": accuracy(results),
+        "accuracy": overall,
         "recruiting_recall": [caught, total],
-        "by_bucket": accuracy_by_bucket(results),
+        "by_bucket": by_bucket,
     }
-    print(f"\nAccuracy: {summary['accuracy']:.1%} on {len(results)} emails")
-    for bucket, acc in sorted(summary["by_bucket"].items()):
+    print(f"\nAccuracy: {overall:.1%} on {len(results)} emails")
+    for bucket, acc in sorted(by_bucket.items()):
         n = sum(r.bucket == bucket for r in results)
         print(f"  {bucket:9} {acc:6.1%}  ({n} emails)")
     print(f"Recruiting emails caught (any recruiting category): {caught}/{total}")

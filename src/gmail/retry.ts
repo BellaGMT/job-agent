@@ -8,28 +8,34 @@
 // inbox must back off together; otherwise the others keep burning the quota and
 // the window never recovers. `Throttle` is that shared pause.
 
+import { isRecord, stringField } from "../guards.js";
+
 const RATE_LIMIT_REASONS = new Set(["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"]);
 
-interface ApiError {
-  status?: number;
-  code?: number | string;
-  message?: string;
-  response?: { headers?: unknown; data?: { error?: { errors?: { reason?: string }[] } } };
-}
-
 export function statusOf(err: unknown): number | undefined {
-  const e = err as ApiError;
-  const s = e?.status ?? e?.code;
+  if (!isRecord(err)) return undefined;
+  const s = err["status"] ?? err["code"];
   return typeof s === "number" ? s : undefined;
 }
 
+/** `reason` values from a Google API error body: response.data.error.errors[].reason */
+function errorReasons(err: unknown): string[] {
+  const response = isRecord(err) ? err["response"] : undefined;
+  const data = isRecord(response) ? response["data"] : undefined;
+  const error = isRecord(data) ? data["error"] : undefined;
+  const errors = isRecord(error) ? error["errors"] : undefined;
+  if (!Array.isArray(errors)) return [];
+  return errors.map((e: unknown) => stringField(e, "reason")).filter((r): r is string => r !== undefined);
+}
+
 export function isRateLimit(err: unknown): boolean {
-  const e = err as ApiError;
   const status = statusOf(err);
   if (status === 429) return true;
   if (status !== 403) return false;
-  const reasons = e.response?.data?.error?.errors?.map((x) => x.reason) ?? [];
-  return reasons.some((r) => r && RATE_LIMIT_REASONS.has(r)) || /quota exceeded|rate limit/i.test(e.message ?? "");
+  return (
+    errorReasons(err).some((r) => RATE_LIMIT_REASONS.has(r)) ||
+    /quota exceeded|rate limit/i.test(stringField(err, "message") ?? "")
+  );
 }
 
 export function isRetryable(err: unknown): boolean {
@@ -37,18 +43,16 @@ export function isRetryable(err: unknown): boolean {
   return isRateLimit(err) || (status !== undefined && status >= 500);
 }
 
-/** Seconds from a Retry-After header, if the server sent one. */
+/**
+ * Delay from a Retry-After header given in seconds, if the server sent one.
+ * (The HTTP-date form is ignored; Google APIs send seconds.)
+ */
 export function retryAfterMs(err: unknown): number | undefined {
-  const headers = (err as ApiError).response?.headers as
-    | { get?: (k: string) => string | null }
-    | Record<string, string>
-    | undefined;
-  const raw =
-    typeof (headers as { get?: unknown })?.get === "function"
-      ? (headers as { get: (k: string) => string | null }).get("retry-after")
-      : (headers as Record<string, string> | undefined)?.["retry-after"];
+  const response = isRecord(err) ? err["response"] : undefined;
+  const headers = isRecord(response) ? response["headers"] : undefined;
+  const raw = headers instanceof Headers ? headers.get("retry-after") : stringField(headers, "retry-after");
   const secs = raw ? Number(raw) : NaN;
-  return Number.isFinite(secs) ? secs * 1000 : undefined;
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1000 : undefined;
 }
 
 export class Throttle {

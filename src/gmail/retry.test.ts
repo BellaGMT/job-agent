@@ -51,7 +51,7 @@ test("a rate limit pauses every caller sharing the throttle", async () => {
   );
   assert.equal(result, "ok");
   assert.equal(calls, 2);
-  assert.ok(sleeps[0] >= 2000, `expected a seconds-scale backoff, got ${sleeps[0]}ms`);
+  assert.ok((sleeps[0] ?? 0) >= 2000, `expected a seconds-scale backoff, got ${sleeps[0]}ms`);
 
   // A second worker arriving during a pause must wait it out too.
   throttle.pause(5000);

@@ -94,7 +94,8 @@ def cmd_sample(conn: sqlite3.Connection, n: int, seed: int, keyword_share: float
         sys.exit("No messages yet. Run `npm run ingest` first.")
 
     rng = random.Random(seed)  # fixed seed: the same DB always yields the same sample
-    hits, rest = [], []
+    hits: list[sqlite3.Row] = []
+    rest: list[sqlite3.Row] = []
     for r in rows:
         text = f"{r['from_addr']} {r['subject']} {r['body']}"
         (hits if KEYWORDS.search(text) else rest).append(r)
@@ -194,6 +195,7 @@ def prompt_label(conn: sqlite3.Connection, row: sqlite3.Row, header: str) -> str
 
 
 def next_unlabeled(conn: sqlite3.Connection, skipped: set[int]) -> sqlite3.Row | None:
+    row: sqlite3.Row
     for row in conn.execute(
         """SELECT q.position, q.bucket, m.* FROM label_queue q
            JOIN messages m USING (account, gmail_id)
@@ -219,7 +221,7 @@ def show(row: sqlite3.Row, header: str) -> None:
 
 def ask_application_key(conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
     """The same application must always get the exact same key, or the linking eval measures labeling noise."""
-    keys = [r[0] for r in conn.execute(
+    keys = [str(r[0]) for r in conn.execute(
         "SELECT application_key FROM labels WHERE application_key IS NOT NULL "
         "GROUP BY application_key ORDER BY MAX(rowid) DESC"
     )]
@@ -404,18 +406,21 @@ def main() -> None:
     a = p.parse_args()
 
     conn = connect()
-    if a.cmd == "sample":
-        cmd_sample(conn, a.n, a.seed, a.keyword_share, a.force)
-    elif a.cmd == "stats":
-        cmd_stats(conn)
-    elif a.cmd == "search":
-        cmd_search(conn, a.text, a.limit)
-    elif a.cmd == "fix":
-        cmd_fix(conn, a.text)
-    elif a.cmd == "rename-key":
-        cmd_rename_key(conn, a.old, a.new)
-    else:
-        cmd_label(conn)
+    try:
+        if a.cmd == "sample":
+            cmd_sample(conn, a.n, a.seed, a.keyword_share, a.force)
+        elif a.cmd == "stats":
+            cmd_stats(conn)
+        elif a.cmd == "search":
+            cmd_search(conn, a.text, a.limit)
+        elif a.cmd == "fix":
+            cmd_fix(conn, a.text)
+        elif a.cmd == "rename-key":
+            cmd_rename_key(conn, a.old, a.new)
+        else:
+            cmd_label(conn)
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

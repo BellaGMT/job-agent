@@ -12,10 +12,11 @@ conn.row_factory = sqlite3.Row  # lets us write r["from_addr"] instead of r[0]
 rows = conn.execute(
     "SELECT from_addr, subject, substr(body_text, 1, 3000) AS body FROM messages"
 ).fetchall()
+conn.close()
 
-emails = Counter()   # domain -> number of emails
-matches = Counter()  # domain -> number of those that match KEYWORDS
-non_matches = defaultdict(list)  # domain -> (sender, subject) of emails with no keyword match
+emails: Counter[str] = Counter()  # domain -> number of emails
+matches: Counter[str] = Counter()  # domain -> number of those that match KEYWORDS
+non_matches: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)  # domain -> (sender, subject), no keyword match
 
 for r in rows:
     d = sender_domain(r["from_addr"])
