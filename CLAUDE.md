@@ -8,18 +8,20 @@ A personal agent that reads recruiting email from several Gmail inboxes and keep
 
 - `src/` (TypeScript, Node 22+): Gmail OAuth, sync into SQLite, MIME parsing. Entry points are `src/auth.ts` and `src/ingest.ts`; logic lives in modules they import.
 - `py/` (Python 3.11+, managed with uv): labeling, classification, evals.
-- `data/agent.db` (SQLite) is the only interface between the two languages. `data/`, `tokens/`, `credentials.json` and `.env` are git-ignored and must stay that way: they hold OAuth tokens and personal email.
+- `data/agent.db` (SQLite) is the only interface between the two languages. Its schema lives in `schema.sql` only; both `src/db.ts` and `py/db.py` apply it, so every statement must stay idempotent. `data/`, `tokens/`, `credentials.json` and `.env` are git-ignored and must stay that way: they hold OAuth tokens and personal email.
 
 ## Commands
 
 Run all of these before reporting work as done, and report which ones actually ran.
 
 ```bash
-npm run typecheck                 # tsc, strict
-npm test                          # node:test via tsx
-cd py && uv run pytest            # Python tests
-cd py && uv run mypy              # strict type check (config in py/pyproject.toml)
+npm run check                     # tsc (strict) + Biome lint/format check + node:test
+cd py && uv run ruff format --check && uv run ruff check
+cd py && uv run mypy              # strict, tests included (config in py/pyproject.toml)
+cd py && uv run pytest
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same checks. Use `npm run lint:fix` and `uv run ruff format` to fix formatting. Call Biome through the npm scripts, never `npx biome` (that name resolves to an unrelated package when Biome isn't installed).
 
 ## Project conventions
 
@@ -31,6 +33,17 @@ These resolve how the standards below apply here.
 - **Network code** takes its client as a parameter (dependency injection) so tests run without network, cost or credentials.
 - **Maintainer exercises.** Some functions are intentionally left for the maintainer to implement: their body is `raise NotImplementedError` (or `throw`) and a test file specifies the behavior. Don't implement them unless asked. They are the only allowed exception to "no placeholders" below.
 - **Commits.** Imperative subject line describing what the commit does. Review `git diff --staged` before committing.
+- **Dependencies.** Pin dev tools exactly (Biome, Ruff) and actions to commit SHAs. Add a dependency only with a clear reason.
+
+## Naming
+
+Code should read clearly to an engineer new to the project.
+
+- Names state intent: `existingMessageIds`, `pendingMessageIds`, `parsedMessage`, `classificationResult`, `expectedCategory`. Not `r`, `m`, `n`, `e`, `tmp`, `obj`, `val`, `res2`, `todo`, `have`.
+- Universal short names are fine where unambiguous: `id`, `ms` (milliseconds), `err` in a catch, `db`, and loop indices in small obvious scopes.
+- TypeScript: `camelCase` values and functions, `PascalCase` types and classes, `UPPER_SNAKE_CASE` module constants (enforced by Biome). External contracts keep their own names (Google's `access_token`, SQL columns).
+- Python: `snake_case` values and functions, `PascalCase` classes, `UPPER_SNAKE_CASE` constants (enforced by Ruff).
+- Don't rename public functions, database columns or persisted formats without migrating every user of them.
 
 ## Engineering standards
 
