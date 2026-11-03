@@ -28,8 +28,10 @@ export interface SyncResult {
   stored: number;
   /** Listed, then deleted before we fetched them (404). */
   vanished: number;
-  /** Ids the API returned without required fields. Not stored, so the next full sync tries them again. */
+  /** Ids the API returned without required fields. Not stored; the next full sync tries them again. */
   malformed: string[];
+  /** False when anything was skipped as malformed: the cursor then stays where it was. */
+  completed: boolean;
 }
 
 /**
@@ -40,9 +42,11 @@ export interface SyncResult {
  * and saved only AFTER every message is handled, so an interrupted sync never
  * marks itself complete.
  *
- * Permanent per-message problems (deleted mid-sync, malformed) are counted and
- * reported instead of aborting: otherwise one bad message would stall the
- * inbox forever. Anything else (network, auth, database) aborts the sync.
+ * Per-message problems (deleted mid-sync, malformed) are counted and reported
+ * instead of aborting, so one bad message doesn't block the rest. A deleted
+ * message no longer exists, so the sync can still complete; a malformed one
+ * wasn't stored, so the cursor is NOT advanced and the next full sync retries
+ * it. Anything else (network, auth, database) aborts the sync.
  */
 export async function syncAccount(source: MailSource, store: MessageStore, email: string, opts: SyncOptions): Promise<SyncResult> {
   const pace = new Pacer(opts.ratePerSecond);
@@ -55,7 +59,7 @@ export async function syncAccount(source: MailSource, store: MessageStore, email
   const todo = ids.filter((id) => !stored.has(id));
   opts.log(`${email}: ${ids.length} messages in window, ${todo.length} new`);
 
-  const result: SyncResult = { inWindow: ids.length, stored: 0, vanished: 0, malformed: [] };
+  const result: SyncResult = { inWindow: ids.length, stored: 0, vanished: 0, malformed: [], completed: false };
   let handled = 0;
   await runPool(todo, opts.concurrency, async (id) => {
     await pace.next();
@@ -69,7 +73,10 @@ export async function syncAccount(source: MailSource, store: MessageStore, email
     if (++handled % 100 === 0 || handled === todo.length) opts.log(`  ${handled}/${todo.length}`);
   });
 
-  store.completeSync(email, cursor);
+  if (result.malformed.length === 0) {
+    store.completeSync(email, cursor);
+    result.completed = true;
+  }
   return result;
 }
 

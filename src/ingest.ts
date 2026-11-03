@@ -36,7 +36,10 @@ async function main(args: IngestArgs): Promise<void> {
           log: (line) => console.log(line),
         });
         if (r.vanished) console.log(`  ${r.vanished} message(s) were deleted before they could be fetched`);
-        if (r.malformed.length) console.warn(`  ${r.malformed.length} malformed message(s) skipped; they'll be retried next sync`);
+        if (!r.completed) {
+          console.warn(`  ${r.malformed.length} malformed message(s) skipped; sync not marked complete, they'll be retried next run`);
+          process.exitCode = 1;
+        }
       } catch (err) {
         // One failing inbox shouldn't block the others; the exit code still reports it.
         process.exitCode = 1;

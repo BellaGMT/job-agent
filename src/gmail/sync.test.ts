@@ -45,7 +45,7 @@ test("stores every listed message across pages and records the cursor", async ()
   const store = new MessageStore(openDb(":memory:"));
   const { source, queries } = fakeSource(["a", "b", "c", "d", "e"]);
   const r = await syncAccount(source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 5, stored: 5, vanished: 0, malformed: [] });
+  assert.deepEqual(r, { inWindow: 5, stored: 5, vanished: 0, malformed: [], completed: true });
   assert.deepEqual([...store.storedIds(EMAIL)].sort(), ["a", "b", "c", "d", "e"]);
   assert.equal(store.cursor(EMAIL), "h-100");
   assert.equal(queries[0], "newer_than:3m -in:chats");
@@ -81,11 +81,11 @@ test("messages deleted between listing and fetching (404) are skipped, not fatal
   const gone = Object.assign(new Error("Not Found"), { status: 404 });
   const { source } = fakeSource(["a", "b"], { failOn: new Map([["b", gone]]) });
   const r = await syncAccount(source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 2, stored: 1, vanished: 1, malformed: [] });
+  assert.deepEqual(r, { inWindow: 2, stored: 1, vanished: 1, malformed: [], completed: true });
   assert.equal(store.cursor(EMAIL), "h-100");
 });
 
-test("a malformed message is reported and skipped, not stored and not fatal", async () => {
+test("a malformed message is skipped and reported, and the cursor stays put until it's stored", async () => {
   const store = new MessageStore(openDb(":memory:"));
   const lines: string[] = [];
   const { source } = fakeSource(["a", "b"]);
@@ -93,13 +93,17 @@ test("a malformed message is reported and skipped, not stored and not fatal", as
   source.getMessage = async (id) => (id === "a" ? { id: "a" } : real(id)); // "a" has no threadId or date
   const r = await syncAccount(source, store, EMAIL, { ...OPTS, log: (l) => lines.push(l) });
   assert.deepEqual(r.malformed, ["a"]);
+  assert.equal(r.completed, false);
+  assert.equal(store.cursor(EMAIL), undefined);
   assert.deepEqual([...store.storedIds(EMAIL)], ["b"]);
   assert.ok(lines.some((l) => l.includes("message a is missing")));
 
-  // Not stored, so the next full sync tries it again.
-  const again = fakeSource(["a", "b"]);
-  await syncAccount(again.source, store, EMAIL, OPTS);
+  // Not stored, so the next full sync tries it again; once it's stored the cursor advances.
+  const again = fakeSource(["a", "b"], { history: "h-200" });
+  const r2 = await syncAccount(again.source, store, EMAIL, OPTS);
   assert.deepEqual(again.fetched, ["a"]);
+  assert.equal(r2.completed, true);
+  assert.equal(store.cursor(EMAIL), "h-200");
 });
 
 test("a database failure aborts the sync and leaves the cursor alone", async () => {
@@ -115,6 +119,6 @@ test("a database failure aborts the sync and leaves the cursor alone", async () 
 test("an empty window still completes and records the cursor", async () => {
   const store = new MessageStore(openDb(":memory:"));
   const r = await syncAccount(fakeSource([]).source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 0, stored: 0, vanished: 0, malformed: [] });
+  assert.deepEqual(r, { inWindow: 0, stored: 0, vanished: 0, malformed: [], completed: true });
   assert.equal(store.cursor(EMAIL), "h-100");
 });
