@@ -40,8 +40,8 @@ export function assertSafeEmail(email: string): string {
 }
 
 /** Validate the OAuth client JSON downloaded from Google Cloud ("installed" or "web" section). */
-export function parseClientSecrets(raw: unknown): ClientSecrets {
-  const section = isRecord(raw) ? (raw["installed"] ?? raw["web"]) : undefined;
+export function parseClientSecrets(clientFile: unknown): ClientSecrets {
+  const section = isRecord(clientFile) ? (clientFile["installed"] ?? clientFile["web"]) : undefined;
   const clientId = stringField(section, "client_id");
   const clientSecret = stringField(section, "client_secret");
   if (!clientId || !clientSecret) {
@@ -51,20 +51,21 @@ export function parseClientSecrets(raw: unknown): ClientSecrets {
 }
 
 /** Validate a stored or freshly issued token set. Unknown fields are dropped. */
-export function parseCredentials(raw: unknown): Auth.Credentials {
-  if (!isRecord(raw)) throw new Error("Token data is not an object.");
-  const creds: Auth.Credentials = {};
-  const accessToken = stringField(raw, "access_token");
-  const refreshToken = stringField(raw, "refresh_token");
-  const tokenType = stringField(raw, "token_type");
-  const scope = stringField(raw, "scope");
-  if (accessToken) creds.access_token = accessToken;
-  if (refreshToken) creds.refresh_token = refreshToken;
-  if (tokenType) creds.token_type = tokenType;
-  if (scope) creds.scope = scope;
-  if (typeof raw["expiry_date"] === "number") creds.expiry_date = raw["expiry_date"];
-  if (!creds.access_token && !creds.refresh_token) throw new Error("Token data has no access or refresh token.");
-  return creds;
+export function parseCredentials(tokenData: unknown): Auth.Credentials {
+  if (!isRecord(tokenData)) throw new Error("Token data is not an object.");
+  const credentials: Auth.Credentials = {};
+  const accessToken = stringField(tokenData, "access_token");
+  const refreshToken = stringField(tokenData, "refresh_token");
+  const tokenType = stringField(tokenData, "token_type");
+  const scope = stringField(tokenData, "scope");
+  if (accessToken) credentials.access_token = accessToken;
+  if (refreshToken) credentials.refresh_token = refreshToken;
+  if (tokenType) credentials.token_type = tokenType;
+  if (scope) credentials.scope = scope;
+  const expiryDate = tokenData["expiry_date"];
+  if (typeof expiryDate === "number") credentials.expiry_date = expiryDate;
+  if (!credentials.access_token && !credentials.refresh_token) throw new Error("Token data has no access or refresh token.");
+  return credentials;
 }
 
 function readJson(file: string): unknown {
@@ -100,9 +101,9 @@ export function saveToken(email: string, tokens: Auth.Credentials, dir = TOKEN_D
   const file = tokenPath(email, dir);
   const existing = fs.existsSync(file) ? parseCredentials(readJson(file)) : {};
   const merged = parseCredentials({ ...existing, ...dropNullish(tokens) });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(merged, null, 2), { mode: 0o600 }); // owner-only on POSIX
-  fs.renameSync(tmp, file);
+  const tempFile = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(merged, null, 2), { mode: 0o600 }); // owner-only on POSIX
+  fs.renameSync(tempFile, file);
 }
 
 export function loadToken(email: string, dir = TOKEN_DIR): Auth.Credentials {
@@ -116,17 +117,17 @@ export function listAccounts(dir = TOKEN_DIR): { accounts: string[]; ignored: st
   if (!fs.existsSync(dir)) return { accounts: [], ignored: [] };
   const names = fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => f.slice(0, -".json".length))
+    .filter((fileName) => fileName.endsWith(".json"))
+    .map((fileName) => fileName.slice(0, -".json".length))
     .sort();
-  return { accounts: names.filter(isSafeAccountName), ignored: names.filter((n) => !isSafeAccountName(n)) };
+  return { accounts: names.filter(isSafeAccountName), ignored: names.filter((name) => !isSafeAccountName(name)) };
 }
 
 export function authorizedClient(email: string): Auth.OAuth2Client {
   const client = newOAuthClient();
   client.setCredentials(loadToken(email));
   // The library refreshes access tokens automatically; persist each new one.
-  client.on("tokens", (t) => saveToken(email, t));
+  client.on("tokens", (refreshedTokens) => saveToken(email, refreshedTokens));
   return client;
 }
 

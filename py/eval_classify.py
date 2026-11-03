@@ -98,8 +98,8 @@ def accuracy_by_bucket(results: list[Result]) -> dict[str, float]:
 # ------------------------------------------------------------------ wiring
 
 
-def fmt(x: float | None) -> str:
-    return "   -" if x is None else f"{x:4.0%}"
+def format_rate(rate: float | None) -> str:
+    return "   -" if rate is None else f"{rate:4.0%}"
 
 
 def print_report(results: list[Result], errors: list[dict[str, str]]) -> dict[str, object]:
@@ -113,24 +113,24 @@ def print_report(results: list[Result], errors: list[dict[str, str]]) -> dict[st
         "by_bucket": by_bucket,
     }
     print(f"\nAccuracy: {overall:.1%} on {len(results)} emails")
-    for bucket, acc in sorted(by_bucket.items()):
-        n = sum(r.bucket == bucket for r in results)
-        print(f"  {bucket:9} {acc:6.1%}  ({n} emails)")
+    for bucket, bucket_accuracy in sorted(by_bucket.items()):
+        email_count = sum(result.bucket == bucket for result in results)
+        print(f"  {bucket:9} {bucket_accuracy:6.1%}  ({email_count} emails)")
     print(f"Recruiting emails caught (any recruiting category): {caught}/{total}")
 
     print(f"\n{'category':26} {'support':>7} {'recall':>7} {'precision':>9}")
-    for cat, s in sorted(per_category(results).items()):
-        flag = "   <- untested" if s.support == 0 else "   <- few examples" if s.support < 3 else ""
-        print(f"{cat:26} {s.support:7} {fmt(s.recall):>7} {fmt(s.precision):>9}{flag}")
+    for category, score in sorted(per_category(results).items()):
+        flag = "   <- untested" if score.support == 0 else "   <- few examples" if score.support < 3 else ""
+        print(f"{category:26} {score.support:7} {format_rate(score.recall):>7} {format_rate(score.precision):>9}{flag}")
 
     print("\nMost common mistakes (expected -> predicted):")
-    for exp, pred, n in confusions(results)[:10]:
-        print(f"  {n:3}  {exp} -> {pred}")
+    for expected, predicted, mistake_count in confusions(results)[:10]:
+        print(f"  {mistake_count:3}  {expected} -> {predicted}")
 
     print("\nEvery error (read these; they tell you what to change in the prompt):")
-    for e in errors:
-        print(f"  [{e['bucket']}] {e['subject'][:60]!r}")
-        print(f"      expected {e['expected']}, got {e['predicted']}: {e['reason']}")
+    for error in errors:
+        print(f"  [{error['bucket']}] {error['subject'][:60]!r}")
+        print(f"      expected {error['expected']}, got {error['predicted']}: {error['reason']}")
     return summary
 
 
@@ -147,20 +147,20 @@ def main() -> None:
     prompt = load_prompt(args.prompt)
     items = load_eval_set()
     print(f"Classifying {len(items)} emails with {args.model} (cached results are reused)...")
-    outputs = classify_many([i.email for i in items], prompt=prompt, model=args.model, workers=args.workers)
+    outputs = classify_many([item.email for item in items], prompt=prompt, model=args.model, workers=args.workers)
 
-    results = [Result(i.category, o.category, i.bucket) for i, o in zip(items, outputs)]
+    results = [Result(item.category, output.category, item.bucket) for item, output in zip(items, outputs)]
     errors = [
         {
-            "subject": i.email.subject,
-            "gmail_id": i.email.gmail_id,
-            "bucket": i.bucket,
-            "expected": i.category,
-            "predicted": o.category,
-            "reason": o.reason,
+            "subject": item.email.subject,
+            "gmail_id": item.email.gmail_id,
+            "bucket": item.bucket,
+            "expected": item.category,
+            "predicted": output.category,
+            "reason": output.reason,
         }
-        for i, o in zip(items, outputs)
-        if o.category != i.category
+        for item, output in zip(items, outputs)
+        if output.category != item.category
     ]
     summary = print_report(results, errors)
 
@@ -173,7 +173,7 @@ def main() -> None:
         "prompt_file": str(args.prompt.name),
         "prompt_sha": hashlib.sha256(prompt.encode()).hexdigest()[:12],
         "summary": summary,
-        "results": [asdict(r) for r in results],
+        "results": [asdict(result) for result in results],
         "errors": errors,
     }
     out = RUNS_DIR / f"classify-{stamp}.json"

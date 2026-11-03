@@ -5,10 +5,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** `obj[key]` if it is a non-empty string, else undefined. */
-export function stringField(obj: unknown, key: string): string | undefined {
-  if (!isRecord(obj)) return undefined;
-  const v = obj[key];
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+export function stringField(record: unknown, key: string): string | undefined {
+  if (!isRecord(record)) return undefined;
+  const fieldValue = record[key];
+  return typeof fieldValue === "string" && fieldValue.length > 0 ? fieldValue : undefined;
 }
 
 export function errorMessage(err: unknown): string {

@@ -11,7 +11,7 @@ export class Pacer {
   constructor(
     perSecond: number,
     private readonly now: () => number = Date.now,
-    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   ) {
     if (!(perSecond > 0)) throw new Error(`Rate must be positive, got ${perSecond}`);
     this.rate = perSecond;

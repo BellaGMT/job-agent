@@ -14,8 +14,8 @@ const RATE_LIMIT_REASONS = new Set(["rateLimitExceeded", "userRateLimitExceeded"
 
 export function statusOf(err: unknown): number | undefined {
   if (!isRecord(err)) return undefined;
-  const s = err["status"] ?? err["code"];
-  return typeof s === "number" ? s : undefined;
+  const status = err["status"] ?? err["code"];
+  return typeof status === "number" ? status : undefined;
 }
 
 /** `reason` values from a Google API error body: response.data.error.errors[].reason */
@@ -25,7 +25,7 @@ function errorReasons(err: unknown): string[] {
   const error = isRecord(data) ? data["error"] : undefined;
   const errors = isRecord(error) ? error["errors"] : undefined;
   if (!Array.isArray(errors)) return [];
-  return errors.map((e: unknown) => stringField(e, "reason")).filter((r): r is string => r !== undefined);
+  return errors.map((entry: unknown) => stringField(entry, "reason")).filter((reason): reason is string => reason !== undefined);
 }
 
 export function isRateLimit(err: unknown): boolean {
@@ -33,7 +33,7 @@ export function isRateLimit(err: unknown): boolean {
   if (status === 429) return true;
   if (status !== 403) return false;
   return (
-    errorReasons(err).some((r) => RATE_LIMIT_REASONS.has(r)) ||
+    errorReasons(err).some((reason) => RATE_LIMIT_REASONS.has(reason)) ||
     /quota exceeded|rate limit/i.test(stringField(err, "message") ?? "")
   );
 }
@@ -50,9 +50,9 @@ export function isRetryable(err: unknown): boolean {
 export function retryAfterMs(err: unknown): number | undefined {
   const response = isRecord(err) ? err["response"] : undefined;
   const headers = isRecord(response) ? response["headers"] : undefined;
-  const raw = headers instanceof Headers ? headers.get("retry-after") : stringField(headers, "retry-after");
-  const secs = raw ? Number(raw) : NaN;
-  return Number.isFinite(secs) && secs >= 0 ? secs * 1000 : undefined;
+  const headerValue = headers instanceof Headers ? headers.get("retry-after") : stringField(headers, "retry-after");
+  const seconds = headerValue ? Number(headerValue) : NaN;
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
 }
 
 export class Throttle {
@@ -73,7 +73,7 @@ export class Throttle {
   }
 }
 
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface RetryOptions {
   attempts?: number;
@@ -82,16 +82,16 @@ export interface RetryOptions {
   onRateLimit?: (waitMs: number) => void;
 }
 
-export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
-  const { attempts = 8, throttle = new Throttle(), sleep = defaultSleep, onRateLimit } = opts;
-  for (let i = 0; ; i++) {
+export async function withRetry<T>(operation: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+  const { attempts = 8, throttle = new Throttle(), sleep = defaultSleep, onRateLimit } = options;
+  for (let attempt = 0; ; attempt++) {
     await throttle.wait(sleep);
     try {
-      return await fn();
+      return await operation();
     } catch (err) {
-      if (!isRetryable(err) || i >= attempts - 1) throw err;
+      if (!isRetryable(err) || attempt >= attempts - 1) throw err;
       // Per-minute quota: back off on a scale of seconds to a minute, not milliseconds.
-      const backoff = Math.min(60_000, 2 ** i * 2_000) + Math.random() * 1_000;
+      const backoff = Math.min(60_000, 2 ** attempt * 2_000) + Math.random() * 1_000;
       const waitMs = retryAfterMs(err) ?? backoff;
       if (isRateLimit(err)) {
         throttle.pause(waitMs); // everyone waits, not just this worker

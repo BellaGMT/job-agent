@@ -2,17 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runPool } from "./pool.js";
 
-const tick = () => new Promise((r) => setImmediate(r));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test("processes every item exactly once with bounded concurrency", async () => {
   const seen: number[] = [];
   let inFlight = 0;
   let peak = 0;
-  await runPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+  await runPool([1, 2, 3, 4, 5, 6, 7], 3, async (item) => {
     inFlight++;
     peak = Math.max(peak, inFlight);
     await tick();
-    seen.push(n);
+    seen.push(item);
     inFlight--;
   });
   assert.deepEqual(seen.sort(), [1, 2, 3, 4, 5, 6, 7]);
@@ -22,11 +22,11 @@ test("processes every item exactly once with bounded concurrency", async () => {
 test("stops taking new items after a failure and rethrows the first error", async () => {
   const started: number[] = [];
   await assert.rejects(
-    runPool([1, 2, 3, 4, 5, 6], 2, async (n) => {
-      started.push(n);
+    runPool([1, 2, 3, 4, 5, 6], 2, async (item) => {
+      started.push(item);
       await tick();
-      if (n === 1) throw new Error("first");
-      if (n === 2) throw new Error("second");
+      if (item === 1) throw new Error("first");
+      if (item === 2) throw new Error("second");
     }),
     /first/,
   );
@@ -36,7 +36,7 @@ test("stops taking new items after a failure and rethrows the first error", asyn
 test("empty input and pool larger than input both work", async () => {
   await runPool([], 4, async () => assert.fail("must not run"));
   const seen: string[] = [];
-  await runPool(["x"], 10, async (s) => void seen.push(s));
+  await runPool(["x"], 10, async (item) => void seen.push(item));
   assert.deepEqual(seen, ["x"]);
 });
 

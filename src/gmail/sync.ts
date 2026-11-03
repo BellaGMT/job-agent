@@ -48,29 +48,31 @@ export interface SyncResult {
  * wasn't stored, so the cursor is NOT advanced and the next full sync retries
  * it. Anything else (network, auth, database) aborts the sync.
  */
-export async function syncAccount(source: MailSource, store: MessageStore, email: string, opts: SyncOptions): Promise<SyncResult> {
-  const pace = new Pacer(opts.ratePerSecond);
-  const retry = retrier(pace, opts.log);
+export async function syncAccount(source: MailSource, store: MessageStore, email: string, options: SyncOptions): Promise<SyncResult> {
+  const pace = new Pacer(options.ratePerSecond);
+  const retry = retrier(pace, options.log);
   store.ensureAccount(email);
 
   const cursor = await retry(() => source.historyId());
-  const ids = await listAll(source, `newer_than:${opts.months}m -in:chats`, retry);
-  const stored = store.storedIds(email);
-  const todo = ids.filter((id) => !stored.has(id));
-  opts.log(`${email}: ${ids.length} messages in window, ${todo.length} new`);
+  const listedIds = await listAllIds(source, `newer_than:${options.months}m -in:chats`, retry);
+  const existingMessageIds = store.storedIds(email);
+  const pendingMessageIds = listedIds.filter((id) => !existingMessageIds.has(id));
+  options.log(`${email}: ${listedIds.length} messages in window, ${pendingMessageIds.length} new`);
 
-  const result: SyncResult = { inWindow: ids.length, stored: 0, vanished: 0, malformed: [], completed: false };
-  let handled = 0;
-  await runPool(todo, opts.concurrency, async (id) => {
+  const result: SyncResult = { inWindow: listedIds.length, stored: 0, vanished: 0, malformed: [], completed: false };
+  let handledCount = 0;
+  await runPool(pendingMessageIds, options.concurrency, async (id) => {
     await pace.next();
-    const msg = await fetchUnlessDeleted(source, id, retry);
-    const parsed = msg ? parseOrReport(id, msg, result, opts.log) : undefined;
-    if (!msg) result.vanished++;
-    if (parsed) {
-      store.insert(email, parsed);
+    const message = await fetchUnlessDeleted(source, id, retry);
+    const parsedMessage = message ? parseOrReport(id, message, result, options.log) : undefined;
+    if (!message) result.vanished++;
+    if (parsedMessage) {
+      store.insert(email, parsedMessage);
       result.stored++;
     }
-    if (++handled % 100 === 0 || handled === todo.length) opts.log(`  ${handled}/${todo.length}`);
+    if (++handledCount % 100 === 0 || handledCount === pendingMessageIds.length) {
+      options.log(`  ${handledCount}/${pendingMessageIds.length}`);
+    }
   });
 
   if (result.malformed.length === 0) {
@@ -80,9 +82,14 @@ export async function syncAccount(source: MailSource, store: MessageStore, email
   return result;
 }
 
-function parseOrReport(id: string, msg: gmail_v1.Schema$Message, result: SyncResult, log: (line: string) => void): ParsedMessage | undefined {
+function parseOrReport(
+  id: string,
+  message: gmail_v1.Schema$Message,
+  result: SyncResult,
+  log: (line: string) => void,
+): ParsedMessage | undefined {
   try {
-    return parseMessage(msg);
+    return parseMessage(message);
   } catch (err) {
     if (!(err instanceof MalformedMessageError)) throw err;
     result.malformed.push(id);
@@ -91,13 +98,13 @@ function parseOrReport(id: string, msg: gmail_v1.Schema$Message, result: SyncRes
   }
 }
 
-type Retry = <T>(fn: () => Promise<T>) => Promise<T>;
+type Retry = <T>(operation: () => Promise<T>) => Promise<T>;
 
 /** One throttle per inbox (Gmail quotas are per user); a quota error also slows the pacer. */
 function retrier(pace: Pacer, log: (line: string) => void): Retry {
   const throttle = new Throttle();
-  return (fn) =>
-    withRetry(fn, {
+  return (operation) =>
+    withRetry(operation, {
       throttle,
       onRateLimit: (ms) => {
         pace.slowDown();
@@ -106,7 +113,7 @@ function retrier(pace: Pacer, log: (line: string) => void): Retry {
     });
 }
 
-async function listAll(source: MailSource, query: string, retry: Retry): Promise<string[]> {
+async function listAllIds(source: MailSource, query: string, retry: Retry): Promise<string[]> {
   const ids: string[] = [];
   let pageToken: string | undefined;
   do {
@@ -135,9 +142,9 @@ export function gmailSource(gmail: gmail_v1.Gmail): MailSource {
       if (!data.historyId) throw new Error("Gmail profile has no historyId.");
       return data.historyId;
     },
-    async listIds(q, pageToken) {
-      const { data } = await gmail.users.messages.list({ userId: "me", q, maxResults: 500, pageToken });
-      const ids = (data.messages ?? []).map((m) => m.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+    async listIds(query, pageToken) {
+      const { data } = await gmail.users.messages.list({ userId: "me", q: query, maxResults: 500, pageToken });
+      const ids = (data.messages ?? []).map((listed) => listed.id).filter((id): id is string => typeof id === "string" && id.length > 0);
       return data.nextPageToken ? { ids, nextPageToken: data.nextPageToken } : { ids };
     },
     async getMessage(id) {

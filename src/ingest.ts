@@ -29,15 +29,15 @@ async function main(args: IngestArgs): Promise<void> {
     for (const email of accounts) {
       try {
         const source = gmailSource(google.gmail({ version: "v1", auth: authorizedClient(email) }));
-        const r = await syncAccount(source, store, email, {
+        const syncResult = await syncAccount(source, store, email, {
           months: args.months,
           ratePerSecond: args.ratePerSecond,
           concurrency: CONCURRENCY,
           log: (line) => console.log(line),
         });
-        if (r.vanished) console.log(`  ${r.vanished} message(s) were deleted before they could be fetched`);
-        if (!r.completed) {
-          console.warn(`  ${r.malformed.length} malformed message(s) skipped; sync not marked complete, they'll be retried next run`);
+        if (syncResult.vanished) console.log(`  ${syncResult.vanished} message(s) were deleted before they could be fetched`);
+        if (!syncResult.completed) {
+          console.warn(`  ${syncResult.malformed.length} malformed message(s) skipped; sync not marked complete, they'll be retried next run`);
           process.exitCode = 1;
         }
       } catch (err) {

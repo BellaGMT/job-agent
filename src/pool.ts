@@ -12,9 +12,9 @@ export async function runPool<T>(items: Iterable<T>, size: number, worker: (item
   let failure: { error: unknown } | undefined;
 
   const lane = async (): Promise<void> => {
-    for (let r = iterator.next(); !r.done && !failure; r = iterator.next()) {
+    for (let step = iterator.next(); !step.done && !failure; step = iterator.next()) {
       try {
-        await worker(r.value);
+        await worker(step.value);
       } catch (error) {
         failure ??= { error };
       }

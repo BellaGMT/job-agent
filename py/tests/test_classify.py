@@ -79,10 +79,10 @@ def test_cache_key_separates_fields():
 
 def test_classify_many_preserves_order(tmp_path):
     client = FakeClient()
-    emails = [make_email(gmail_id=f"g{i}") for i in range(10)]
+    emails = [make_email(gmail_id=f"g{number}") for number in range(10)]
     out = classify_many(emails, prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
     assert len(out) == 10
-    sent = [c["messages"][0]["content"] for c in client.calls]
+    sent = [call["messages"][0]["content"] for call in client.calls]
     assert len(sent) == 10
 
 
@@ -119,9 +119,9 @@ def test_corrupt_cache_file_is_a_miss_and_gets_overwritten(tmp_path):
 
 def test_cache_writes_leave_no_temp_files(tmp_path):
     client = FakeClient()
-    classify_many([make_email(gmail_id=f"g{i}") for i in range(5)], prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
-    names = [p.name for p in tmp_path.iterdir()]
-    assert len(names) == 5 and all(n.endswith(".json") for n in names)
+    classify_many([make_email(gmail_id=f"g{number}") for number in range(5)], prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
+    names = [path.name for path in tmp_path.iterdir()]
+    assert len(names) == 5 and all(name.endswith(".json") for name in names)
 
 
 def test_email_content_cannot_close_the_data_block():

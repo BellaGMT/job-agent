@@ -44,8 +44,8 @@ function fakeSource(ids: string[], opts: { pageSize?: number; failOn?: Map<strin
 test("stores every listed message across pages and records the cursor", async () => {
   const store = new MessageStore(openDb(":memory:"));
   const { source, queries } = fakeSource(["a", "b", "c", "d", "e"]);
-  const r = await syncAccount(source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 5, stored: 5, vanished: 0, malformed: [], completed: true });
+  const result = await syncAccount(source, store, EMAIL, OPTS);
+  assert.deepEqual(result, { inWindow: 5, stored: 5, vanished: 0, malformed: [], completed: true });
   assert.deepEqual([...store.storedIds(EMAIL)].sort(), ["a", "b", "c", "d", "e"]);
   assert.equal(store.cursor(EMAIL), "h-100");
   assert.equal(queries[0], "newer_than:3m -in:chats");
@@ -55,9 +55,9 @@ test("a re-run fetches only what isn't stored yet", async () => {
   const store = new MessageStore(openDb(":memory:"));
   await syncAccount(fakeSource(["a", "b"]).source, store, EMAIL, OPTS);
   const second = fakeSource(["a", "b", "c"]);
-  const r = await syncAccount(second.source, store, EMAIL, OPTS);
+  const result = await syncAccount(second.source, store, EMAIL, OPTS);
   assert.deepEqual(second.fetched, ["c"]);
-  assert.equal(r.stored, 1);
+  assert.equal(result.stored, 1);
 });
 
 test("an interrupted sync keeps what it stored but does not advance the cursor", async () => {
@@ -80,8 +80,8 @@ test("messages deleted between listing and fetching (404) are skipped, not fatal
   const store = new MessageStore(openDb(":memory:"));
   const gone = Object.assign(new Error("Not Found"), { status: 404 });
   const { source } = fakeSource(["a", "b"], { failOn: new Map([["b", gone]]) });
-  const r = await syncAccount(source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 2, stored: 1, vanished: 1, malformed: [], completed: true });
+  const result = await syncAccount(source, store, EMAIL, OPTS);
+  assert.deepEqual(result, { inWindow: 2, stored: 1, vanished: 1, malformed: [], completed: true });
   assert.equal(store.cursor(EMAIL), "h-100");
 });
 
@@ -91,18 +91,18 @@ test("a malformed message is skipped and reported, and the cursor stays put unti
   const { source } = fakeSource(["a", "b"]);
   const real = source.getMessage;
   source.getMessage = async (id) => (id === "a" ? { id: "a" } : real(id)); // "a" has no threadId or date
-  const r = await syncAccount(source, store, EMAIL, { ...OPTS, log: (l) => lines.push(l) });
-  assert.deepEqual(r.malformed, ["a"]);
-  assert.equal(r.completed, false);
+  const result = await syncAccount(source, store, EMAIL, { ...OPTS, log: (line) => lines.push(line) });
+  assert.deepEqual(result.malformed, ["a"]);
+  assert.equal(result.completed, false);
   assert.equal(store.cursor(EMAIL), undefined);
   assert.deepEqual([...store.storedIds(EMAIL)], ["b"]);
-  assert.ok(lines.some((l) => l.includes("message a is missing")));
+  assert.ok(lines.some((line) => line.includes("message a is missing")));
 
   // Not stored, so the next full sync tries it again; once it's stored the cursor advances.
   const again = fakeSource(["a", "b"], { history: "h-200" });
-  const r2 = await syncAccount(again.source, store, EMAIL, OPTS);
+  const secondResult = await syncAccount(again.source, store, EMAIL, OPTS);
   assert.deepEqual(again.fetched, ["a"]);
-  assert.equal(r2.completed, true);
+  assert.equal(secondResult.completed, true);
   assert.equal(store.cursor(EMAIL), "h-200");
 });
 
@@ -118,7 +118,7 @@ test("a database failure aborts the sync and leaves the cursor alone", async () 
 
 test("an empty window still completes and records the cursor", async () => {
   const store = new MessageStore(openDb(":memory:"));
-  const r = await syncAccount(fakeSource([]).source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 0, stored: 0, vanished: 0, malformed: [], completed: true });
+  const result = await syncAccount(fakeSource([]).source, store, EMAIL, OPTS);
+  assert.deepEqual(result, { inWindow: 0, stored: 0, vanished: 0, malformed: [], completed: true });
   assert.equal(store.cursor(EMAIL), "h-100");
 });

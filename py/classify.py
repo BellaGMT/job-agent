@@ -68,10 +68,10 @@ class Classification(BaseModel):
 
     @field_validator("category", mode="before")
     @classmethod
-    def _lowercase(cls, v: object) -> object:
+    def _lowercase(cls, value: object) -> object:
         # The API may change the capitalization of enum values ("Rejection");
         # normalize before validating against the Literal.
-        return v.strip().lower() if isinstance(v, str) else v
+        return value.strip().lower() if isinstance(value, str) else value
 
 
 class ClassificationError(RuntimeError):
@@ -116,11 +116,11 @@ def _defang(text: str) -> str:
 
 
 def cache_key(model: str, prompt: str, email: Email) -> str:
-    h = hashlib.sha256()
+    digest = hashlib.sha256()
     for part in (model, prompt, email.account, email.gmail_id, str(MAX_BODY_CHARS), FORMAT_VERSION):
-        h.update(part.encode())
-        h.update(b"\0")  # separator, so ("ab","c") and ("a","bc") differ
-    return h.hexdigest()[:32]
+        digest.update(part.encode())
+        digest.update(b"\0")  # separator, so ("ab","c") and ("a","bc") differ
+    return digest.hexdigest()[:32]
 
 
 def classify(
@@ -165,7 +165,11 @@ def classify_many(
     """
     shared = parse or default_parse()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(lambda e: classify(e, prompt=prompt, model=model, parse=shared, cache_dir=cache_dir), emails))
+        return list(
+            pool.map(
+                lambda email: classify(email, prompt=prompt, model=model, parse=shared, cache_dir=cache_dir), emails
+            )
+        )
 
 
 def _validated(response: object) -> Classification:
@@ -207,5 +211,7 @@ if __name__ == "__main__":
     from data import load_eval_set
 
     items = load_eval_set()[-3:]
-    for item, c in zip(items, classify_many([i.email for i in items], prompt=load_prompt())):
-        print(f"{item.email.subject[:60]!r}\n  expected {item.category}, got {c.category}\n  {json.dumps(c.model_dump())}\n")
+    outputs = classify_many([item.email for item in items], prompt=load_prompt())
+    for item, classification in zip(items, outputs):
+        print(f"{item.email.subject[:60]!r}\n  expected {item.category}, got {classification.category}")
+        print(f"  {json.dumps(classification.model_dump())}\n")
