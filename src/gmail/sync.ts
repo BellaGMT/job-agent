@@ -6,7 +6,7 @@ import type { gmail_v1 } from "googleapis";
 import type { MessageStore } from "../store.js";
 import { runPool } from "../pool.js";
 import { Pacer } from "./pacer.js";
-import { parseMessage } from "./parse.js";
+import { MalformedMessageError, parseMessage, type ParsedMessage } from "./parse.js";
 import { statusOf, Throttle, withRetry } from "./retry.js";
 
 export interface MailSource {
@@ -25,9 +25,11 @@ export interface SyncOptions {
 
 export interface SyncResult {
   inWindow: number;
-  fetched: number;
+  stored: number;
   /** Listed, then deleted before we fetched them (404). */
   vanished: number;
+  /** Ids the API returned without required fields. Not stored, so the next full sync tries them again. */
+  malformed: string[];
 }
 
 /**
@@ -35,8 +37,12 @@ export interface SyncResult {
  *
  * Restart-safe: stored ids are skipped and inserts are idempotent. The sync
  * cursor is captured BEFORE listing (mail arriving mid-sync lands after it)
- * and saved only AFTER every message is stored, so an interrupted sync never
+ * and saved only AFTER every message is handled, so an interrupted sync never
  * marks itself complete.
+ *
+ * Permanent per-message problems (deleted mid-sync, malformed) are counted and
+ * reported instead of aborting: otherwise one bad message would stall the
+ * inbox forever. Anything else (network, auth, database) aborts the sync.
  */
 export async function syncAccount(source: MailSource, store: MessageStore, email: string, opts: SyncOptions): Promise<SyncResult> {
   const pace = new Pacer(opts.ratePerSecond);
@@ -49,18 +55,33 @@ export async function syncAccount(source: MailSource, store: MessageStore, email
   const todo = ids.filter((id) => !stored.has(id));
   opts.log(`${email}: ${ids.length} messages in window, ${todo.length} new`);
 
-  let fetched = 0;
-  let vanished = 0;
+  const result: SyncResult = { inWindow: ids.length, stored: 0, vanished: 0, malformed: [] };
+  let handled = 0;
   await runPool(todo, opts.concurrency, async (id) => {
     await pace.next();
     const msg = await fetchUnlessDeleted(source, id, retry);
-    if (msg) store.insert(email, parseMessage(msg));
-    else vanished++;
-    if (++fetched % 100 === 0 || fetched === todo.length) opts.log(`  ${fetched}/${todo.length}`);
+    const parsed = msg ? parseOrReport(id, msg, result, opts.log) : undefined;
+    if (!msg) result.vanished++;
+    if (parsed) {
+      store.insert(email, parsed);
+      result.stored++;
+    }
+    if (++handled % 100 === 0 || handled === todo.length) opts.log(`  ${handled}/${todo.length}`);
   });
 
   store.completeSync(email, cursor);
-  return { inWindow: ids.length, fetched: fetched - vanished, vanished };
+  return result;
+}
+
+function parseOrReport(id: string, msg: gmail_v1.Schema$Message, result: SyncResult, log: (line: string) => void): ParsedMessage | undefined {
+  try {
+    return parseMessage(msg);
+  } catch (err) {
+    if (!(err instanceof MalformedMessageError)) throw err;
+    result.malformed.push(id);
+    log(`  skipped ${err.message}`);
+    return undefined;
+  }
 }
 
 type Retry = <T>(fn: () => Promise<T>) => Promise<T>;

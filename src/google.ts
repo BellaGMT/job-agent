@@ -11,9 +11,23 @@ export const SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
 const CREDENTIALS_PATH = "credentials.json";
 export const TOKEN_DIR = "tokens";
 
-// Account emails become file names, so reject anything that could escape the
-// token directory or isn't a plausible address.
-const SAFE_EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+// Account emails become token file names. The requirement is that a name can't
+// escape the token directory or be unusable as a file name on Windows; beyond
+// that, any address Google returns is accepted (Workspace allows e.g. o'brien@).
+const UNSAFE_FILENAME_CHARS = /[\/\\:*?"<>|\u0000-\u001f]/;
+
+export function isSafeAccountName(email: string): boolean {
+  const at = email.indexOf("@");
+  return (
+    at > 0 &&
+    at === email.lastIndexOf("@") &&
+    at < email.length - 1 &&
+    !email.startsWith(".") &&
+    !email.includes("..") &&
+    !/\s/.test(email) &&
+    !UNSAFE_FILENAME_CHARS.test(email)
+  );
+}
 
 export interface ClientSecrets {
   clientId: string;
@@ -21,7 +35,7 @@ export interface ClientSecrets {
 }
 
 export function assertSafeEmail(email: string): string {
-  if (!SAFE_EMAIL.test(email)) throw new Error(`Not a valid inbox address: ${JSON.stringify(email)}`);
+  if (!isSafeAccountName(email)) throw new Error(`Not a valid inbox address: ${JSON.stringify(email)}`);
   return email;
 }
 
@@ -97,14 +111,15 @@ export function loadToken(email: string, dir = TOKEN_DIR): Auth.Credentials {
   return parseCredentials(readJson(file));
 }
 
-export function listAccounts(dir = TOKEN_DIR): string[] {
-  if (!fs.existsSync(dir)) return [];
-  return fs
+/** Connected inboxes, plus any .json files in the token directory that aren't named like one (reported, not hidden). */
+export function listAccounts(dir = TOKEN_DIR): { accounts: string[]; ignored: string[] } {
+  if (!fs.existsSync(dir)) return { accounts: [], ignored: [] };
+  const names = fs
     .readdirSync(dir)
     .filter((f) => f.endsWith(".json"))
     .map((f) => f.slice(0, -".json".length))
-    .filter((email) => SAFE_EMAIL.test(email))
     .sort();
+  return { accounts: names.filter(isSafeAccountName), ignored: names.filter((n) => !isSafeAccountName(n)) };
 }
 
 export function authorizedClient(email: string): Auth.OAuth2Client {

@@ -11,8 +11,11 @@ async function withServer(fn: (s: Awaited<ReturnType<typeof startCallbackServer>
   }
 }
 
-test("listens on loopback only", async () => {
-  await withServer(async (s) => assert.match(s.redirectUri, /^http:\/\/127\.0\.0\.1:\d+$/));
+test("binds to loopback only, never to all interfaces", async () => {
+  await withServer(async (s) => {
+    assert.equal(s.host, "127.0.0.1");
+    assert.match(s.redirectUri, /^http:\/\/127\.0\.0\.1:\d+$/);
+  });
 });
 
 test("resolves with the code when state matches; ignores unrelated requests", async () => {

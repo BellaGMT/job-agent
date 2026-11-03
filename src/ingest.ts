@@ -6,7 +6,7 @@
 //
 // Resumable: messages already stored are skipped, so Ctrl-C and re-run is safe.
 import { google } from "googleapis";
-import { parseIngestArgs } from "./cli-args.js";
+import { parseIngestArgs, type IngestArgs } from "./cli-args.js";
 import { openDb } from "./db.js";
 import { gmailSource, syncAccount } from "./gmail/sync.js";
 import { statusOf } from "./gmail/retry.js";
@@ -18,17 +18,17 @@ import { MessageStore } from "./store.js";
 // bounds bursts when responses are slow.
 const CONCURRENCY = 4;
 
-async function main(): Promise<void> {
-  const args = parseIngestArgs(process.argv.slice(2));
-  const accounts = args.account ? [args.account] : listAccounts();
+async function main(args: IngestArgs): Promise<void> {
+  const { accounts, ignored } = args.account ? { accounts: [args.account], ignored: [] } : listAccounts();
+  for (const name of ignored) console.warn(`Ignoring tokens/${name}.json: not named like an inbox address.`);
   if (accounts.length === 0) throw new Error("No inboxes connected. Run: npm run auth");
 
   const db = openDb();
   try {
     const store = new MessageStore(db);
     for (const email of accounts) {
-      const source = gmailSource(google.gmail({ version: "v1", auth: authorizedClient(email) }));
       try {
+        const source = gmailSource(google.gmail({ version: "v1", auth: authorizedClient(email) }));
         const r = await syncAccount(source, store, email, {
           months: args.months,
           ratePerSecond: args.ratePerSecond,
@@ -36,11 +36,16 @@ async function main(): Promise<void> {
           log: (line) => console.log(line),
         });
         if (r.vanished) console.log(`  ${r.vanished} message(s) were deleted before they could be fetched`);
+        if (r.malformed.length) console.warn(`  ${r.malformed.length} malformed message(s) skipped; they'll be retried next sync`);
       } catch (err) {
-        if (!isRevokedToken(err)) throw err;
-        // One revoked inbox shouldn't block the others.
-        console.error(`${email}: access expired or revoked. Run: npm run auth (pick ${email})`);
+        // One failing inbox shouldn't block the others; the exit code still reports it.
         process.exitCode = 1;
+        if (isRevokedToken(err)) {
+          console.error(`${email}: access expired or revoked. Run: npm run auth (pick ${email})`);
+        } else {
+          const status = statusOf(err);
+          console.error(`${email}: sync failed${status ? ` (HTTP ${status})` : ""}: ${errorMessage(err)}. Already-fetched messages are saved; re-run to continue.`);
+        }
       }
     }
     console.table(store.countsByAccount());
@@ -49,7 +54,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err: unknown) => {
+let args: IngestArgs;
+try {
+  args = parseIngestArgs(process.argv.slice(2));
+} catch (err) {
+  console.error(errorMessage(err)); // a usage mistake, not a sync failure
+  process.exit(2);
+}
+
+main(args).catch((err: unknown) => {
   // The full Gaxios error is a 100-line dump; status + message is what's actionable.
   const status = statusOf(err);
   console.error(`Sync failed${status ? ` (HTTP ${status})` : ""}: ${errorMessage(err)}`);

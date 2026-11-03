@@ -3,7 +3,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isRevokedToken, listAccounts, loadToken, parseClientSecrets, parseCredentials, saveToken } from "./google.js";
+import {
+  isRevokedToken,
+  isSafeAccountName,
+  listAccounts,
+  loadToken,
+  parseClientSecrets,
+  parseCredentials,
+  saveToken,
+} from "./google.js";
 
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "job-agent-tokens-"));
 
@@ -35,19 +43,28 @@ test("saveToken: a refresh without refresh_token keeps the stored one", () => {
   assert.deepEqual(fs.readdirSync(dir), ["me@gmail.com.json"]); // no temp files left behind
 });
 
+test("accepts real-world addresses, rejects names that could escape the directory", () => {
+  for (const ok of ["me@gmail.com", "o'brien@company.com", "first.last+jobs@sub.example.co.uk"]) {
+    assert.equal(isSafeAccountName(ok), true, ok);
+  }
+  for (const bad of ["../evil", "a/b@x.com", "a\\b@x.com", "..@x.com", ".a@x.com", "a@@x.com", "@x.com", "a@", "a b@x.com", "a:b@x.com", ""]) {
+    assert.equal(isSafeAccountName(bad), false, bad);
+  }
+});
+
 test("token files can't be written outside the token directory", () => {
   const dir = tempDir();
   assert.throws(() => saveToken("../evil", { access_token: "a" }, dir), /Not a valid inbox address/);
   assert.throws(() => loadToken("..\\evil@x.com", dir), /Not a valid inbox address/);
 });
 
-test("listAccounts lists only token files named like inboxes", () => {
+test("listAccounts returns inboxes and reports other .json files instead of hiding them", () => {
   const dir = tempDir();
   saveToken("b@gmail.com", { access_token: "a" }, dir);
-  saveToken("a@gmail.com", { access_token: "a" }, dir);
+  saveToken("o'brien@company.com", { access_token: "a" }, dir);
   fs.writeFileSync(path.join(dir, "notes.json"), "{}");
-  assert.deepEqual(listAccounts(dir), ["a@gmail.com", "b@gmail.com"]);
-  assert.deepEqual(listAccounts(path.join(dir, "missing")), []);
+  assert.deepEqual(listAccounts(dir), { accounts: ["b@gmail.com", "o'brien@company.com"], ignored: ["notes"] });
+  assert.deepEqual(listAccounts(path.join(dir, "missing")), { accounts: [], ignored: [] });
 });
 
 test("isRevokedToken recognizes invalid_grant only", () => {

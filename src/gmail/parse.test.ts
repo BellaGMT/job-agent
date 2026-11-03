@@ -84,6 +84,9 @@ test("entity decoding handles numeric, hex and unknown entities", () => {
 test("rejects messages missing the fields every row depends on", () => {
   assert.throws(() => parseMessage({ id: "x", internalDate: "1" }), /missing its id, thread id or date/);
   assert.throws(() => parseMessage({ id: "x", threadId: "t", internalDate: "not a date" }), /missing/);
+  // Number(null) and Number("") are 0: these must not become 1970.
+  assert.throws(() => parseMessage({ id: "x", threadId: "t", internalDate: null }), /missing/);
+  assert.throws(() => parseMessage({ id: "x", threadId: "t", internalDate: "" }), /missing/);
 });
 
 test("out-of-range numeric entities are left as written instead of throwing", () => {

@@ -19,6 +19,11 @@ export interface ParsedMessage {
   labelIds: string[];
 }
 
+/** The API returned a message without the fields a stored row needs. Permanent: retrying won't fix it. */
+export class MalformedMessageError extends Error {
+  override readonly name = "MalformedMessageError";
+}
+
 // Long enough for any recruiting email; stops a 2 MB newsletter bloating the DB.
 const MAX_BODY_CHARS = 50_000;
 
@@ -27,9 +32,11 @@ const MAX_BODY_CHARS = 50_000;
  * Throws if the fields every stored row depends on (id, thread, date) are missing.
  */
 export function parseMessage(msg: gmail_v1.Schema$Message): ParsedMessage {
-  const internalDate = Number(msg.internalDate);
+  // Number(null) and Number("") are 0, so check the raw string: a missing date
+  // must be rejected, not stored as 1970.
+  const internalDate = typeof msg.internalDate === "string" && /^\d+$/.test(msg.internalDate) ? Number(msg.internalDate) : NaN;
   if (!msg.id || !msg.threadId || !Number.isFinite(internalDate)) {
-    throw new Error(`Gmail message ${msg.id ?? "(no id)"} is missing its id, thread id or date.`);
+    throw new MalformedMessageError(`Gmail message ${msg.id ?? "(no id)"} is missing its id, thread id or date.`);
   }
   const headers = msg.payload?.headers ?? [];
   const header = (name: string) =>

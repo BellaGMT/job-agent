@@ -46,7 +46,12 @@ async function main(): Promise<void> {
     const email = assertSafeEmail(profile.emailAddress);
 
     saveToken(email, tokens);
-    openDb().prepare("INSERT OR IGNORE INTO accounts (email) VALUES (?)").run(email);
+    const db = openDb();
+    try {
+      db.prepare("INSERT OR IGNORE INTO accounts (email) VALUES (?)").run(email);
+    } finally {
+      db.close();
+    }
     const total = typeof profile.messagesTotal === "number" ? ` (${profile.messagesTotal} messages in mailbox)` : "";
     console.log(`Connected ${email}${total}.`);
   } finally {

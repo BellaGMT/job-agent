@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 
 export interface CallbackServer {
   redirectUri: string;
+  /** The address the server is actually bound to. */
+  host: string;
   /** Resolves with the authorization code; rejects on error, state mismatch or timeout. */
   waitForCode(expectedState: string, timeoutMs: number): Promise<string>;
   close(): void;
@@ -13,11 +15,12 @@ export interface CallbackServer {
 export async function startCallbackServer(): Promise<CallbackServer> {
   const server = http.createServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo; // listen() on a TCP port always yields AddressInfo
+  const { address, port } = server.address() as AddressInfo; // listen() on a TCP port always yields AddressInfo
   const redirectUri = `http://127.0.0.1:${port}`;
 
   return {
     redirectUri,
+    host: address,
     waitForCode: (expectedState, timeoutMs) => waitForCode(server, redirectUri, expectedState, timeoutMs),
     close: () => {
       server.closeAllConnections();

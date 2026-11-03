@@ -45,7 +45,7 @@ test("stores every listed message across pages and records the cursor", async ()
   const store = new MessageStore(openDb(":memory:"));
   const { source, queries } = fakeSource(["a", "b", "c", "d", "e"]);
   const r = await syncAccount(source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 5, fetched: 5, vanished: 0 });
+  assert.deepEqual(r, { inWindow: 5, stored: 5, vanished: 0, malformed: [] });
   assert.deepEqual([...store.storedIds(EMAIL)].sort(), ["a", "b", "c", "d", "e"]);
   assert.equal(store.cursor(EMAIL), "h-100");
   assert.equal(queries[0], "newer_than:3m -in:chats");
@@ -57,7 +57,7 @@ test("a re-run fetches only what isn't stored yet", async () => {
   const second = fakeSource(["a", "b", "c"]);
   const r = await syncAccount(second.source, store, EMAIL, OPTS);
   assert.deepEqual(second.fetched, ["c"]);
-  assert.equal(r.fetched, 1);
+  assert.equal(r.stored, 1);
 });
 
 test("an interrupted sync keeps what it stored but does not advance the cursor", async () => {
@@ -81,21 +81,40 @@ test("messages deleted between listing and fetching (404) are skipped, not fatal
   const gone = Object.assign(new Error("Not Found"), { status: 404 });
   const { source } = fakeSource(["a", "b"], { failOn: new Map([["b", gone]]) });
   const r = await syncAccount(source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 2, fetched: 1, vanished: 1 });
+  assert.deepEqual(r, { inWindow: 2, stored: 1, vanished: 1, malformed: [] });
   assert.equal(store.cursor(EMAIL), "h-100");
 });
 
-test("a malformed message from the API fails the sync instead of storing a bad row", async () => {
+test("a malformed message is reported and skipped, not stored and not fatal", async () => {
   const store = new MessageStore(openDb(":memory:"));
-  const { source } = fakeSource(["a"]);
-  source.getMessage = async () => ({ id: "a" }); // no threadId, no date
-  await assert.rejects(syncAccount(source, store, EMAIL, OPTS), /missing its id, thread id or date/);
-  assert.equal(store.storedIds(EMAIL).size, 0);
+  const lines: string[] = [];
+  const { source } = fakeSource(["a", "b"]);
+  const real = source.getMessage;
+  source.getMessage = async (id) => (id === "a" ? { id: "a" } : real(id)); // "a" has no threadId or date
+  const r = await syncAccount(source, store, EMAIL, { ...OPTS, log: (l) => lines.push(l) });
+  assert.deepEqual(r.malformed, ["a"]);
+  assert.deepEqual([...store.storedIds(EMAIL)], ["b"]);
+  assert.ok(lines.some((l) => l.includes("message a is missing")));
+
+  // Not stored, so the next full sync tries it again.
+  const again = fakeSource(["a", "b"]);
+  await syncAccount(again.source, store, EMAIL, OPTS);
+  assert.deepEqual(again.fetched, ["a"]);
+});
+
+test("a database failure aborts the sync and leaves the cursor alone", async () => {
+  const db = openDb(":memory:");
+  const store = new MessageStore(db);
+  store.insert = () => {
+    throw new Error("disk I/O error");
+  };
+  await assert.rejects(syncAccount(fakeSource(["a"]).source, store, EMAIL, OPTS), /disk I\/O error/);
+  assert.equal(store.cursor(EMAIL), undefined);
 });
 
 test("an empty window still completes and records the cursor", async () => {
   const store = new MessageStore(openDb(":memory:"));
   const r = await syncAccount(fakeSource([]).source, store, EMAIL, OPTS);
-  assert.deepEqual(r, { inWindow: 0, fetched: 0, vanished: 0 });
+  assert.deepEqual(r, { inWindow: 0, stored: 0, vanished: 0, malformed: [] });
   assert.equal(store.cursor(EMAIL), "h-100");
 });

@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -34,6 +35,9 @@ DEFAULT_PROMPT = Path(__file__).resolve().parent / "prompts" / "classify.md"
 CACHE_DIR = ROOT / "data" / "cache" / "classify"
 MAX_BODY_CHARS = 8_000  # long enough for any recruiting email; caps cost on newsletters
 REQUEST_TIMEOUT_S = 60.0
+# Bump when format_email changes, so cached results from the old format aren't reused.
+FORMAT_VERSION = "2"
+_EMAIL_TAG = re.compile(r"<\s*(/?)\s*email\b", re.IGNORECASE)
 MAX_RETRIES = 4  # the SDK retries 429/5xx/timeouts with exponential backoff and honors Retry-After
 
 Category = Literal[
@@ -89,24 +93,31 @@ def format_email(email: Email) -> str:
     """The user message: metadata the model needs, then the body, inside tags.
 
     The tags mark where untrusted content starts and ends. Email text is data,
-    never instructions; the system prompt should say so.
+    never instructions; the system prompt should say so. Any `<email>` or
+    `</email>` inside the content is defanged so a message can't close the
+    block early. This narrows prompt injection; it doesn't eliminate it, which
+    is why the classifier has no tools and its output is schema-constrained.
     """
-    body = email.body[:MAX_BODY_CHARS]
     return (
         f"<email>\n"
         f"Mailbox owner: {email.account}\n"
-        f"From: {email.from_addr}\n"
-        f"To: {email.to_addr}\n"
+        f"From: {_defang(email.from_addr)}\n"
+        f"To: {_defang(email.to_addr)}\n"
         f"Date: {email.sent_at:%Y-%m-%d}\n"
-        f"Subject: {email.subject}\n\n"
-        f"{body}\n"
+        f"Subject: {_defang(email.subject)}\n\n"
+        f"{_defang(email.body[:MAX_BODY_CHARS])}\n"
         f"</email>"
     )
 
 
+def _defang(text: str) -> str:
+    """'</email>' -> '[/email>' (case and spacing variants too), leaving the text readable."""
+    return _EMAIL_TAG.sub(r"[\1email", text)
+
+
 def cache_key(model: str, prompt: str, email: Email) -> str:
     h = hashlib.sha256()
-    for part in (model, prompt, email.account, email.gmail_id, str(MAX_BODY_CHARS)):
+    for part in (model, prompt, email.account, email.gmail_id, str(MAX_BODY_CHARS), FORMAT_VERSION):
         h.update(part.encode())
         h.update(b"\0")  # separator, so ("ab","c") and ("a","bc") differ
     return h.hexdigest()[:32]
