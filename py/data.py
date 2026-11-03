@@ -6,8 +6,10 @@ import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
-from label import DB_PATH, NO_KEY
+from db import DB_PATH, connect
+from label import NO_KEY
 
 
 @dataclass(frozen=True)
@@ -33,27 +35,26 @@ class LabeledEmail:
         return self.category not in NO_KEY
 
 
-def _email(r: sqlite3.Row) -> Email:
+def _email(row: sqlite3.Row) -> Email:
     return Email(
-        account=r["account"],
-        gmail_id=r["gmail_id"],
-        from_addr=r["from_addr"] or "",
-        to_addr=r["to_addr"] or "",
-        subject=r["subject"] or "",
-        sent_at=datetime.fromtimestamp(r["internal_date"] / 1000, tz=timezone.utc),
-        body=r["body_text"] or "",
+        account=row["account"],
+        gmail_id=row["gmail_id"],
+        from_addr=row["from_addr"] or "",
+        to_addr=row["to_addr"] or "",
+        subject=row["subject"] or "",
+        sent_at=datetime.fromtimestamp(row["internal_date"] / 1000, tz=timezone.utc),
+        body=row["body_text"] or "",
     )
 
 
-def load_eval_set() -> list[LabeledEmail]:
-    """Every labeled email, oldest first."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
+def load_eval_set(db_path: Path | str = DB_PATH) -> list[LabeledEmail]:
+    """Every labeled email that is in the label queue, oldest first."""
+    with closing(connect(db_path)) as connection:
+        rows = connection.execute(
             """SELECT m.*, q.bucket, l.category, l.application_key
                FROM labels l
                JOIN messages m USING (account, gmail_id)
                JOIN label_queue q USING (account, gmail_id)
                ORDER BY m.internal_date"""
         ).fetchall()
-    return [LabeledEmail(_email(r), r["bucket"], r["category"], r["application_key"]) for r in rows]
+    return [LabeledEmail(_email(row), row["bucket"], row["category"], row["application_key"]) for row in rows]

@@ -18,7 +18,7 @@ testpaths = ["tests"]
 
 [tool.mypy]
 strict = true
-files = ["label.py", "explore.py", "data.py", "classify.py", "eval_classify.py", "tests"]
+files = ["db.py", "label.py", "explore.py", "data.py", "classify.py", "eval_classify.py", "tests"]
 plugins = ["pydantic.mypy"]
 
 # Tests are type-checked for mistakes, but fixtures and test functions don't need annotations.

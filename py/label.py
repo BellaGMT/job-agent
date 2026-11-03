@@ -1,11 +1,11 @@
 """Hand-label emails. These labels are the ground truth every eval measures against.
 
-    uv run py/label.py sample          # pick ~100 emails to label (once)
-    uv run py/label.py                 # label them (resumable; q to quit)
-    uv run py/label.py stats           # what your eval set covers
-    uv run py/label.py search offer    # find rare cases and add them to the queue
-    uv run py/label.py fix SpaceX      # re-label an email already labeled
-    uv run py/label.py rename-key "Old | Key" "New | Key"
+    uv run python label.py sample          # pick ~100 emails to label (once)
+    uv run python label.py                 # label them (resumable; q to quit)
+    uv run python label.py stats           # what your eval set covers
+    uv run python label.py search offer    # find rare cases and add them to the queue
+    uv run python label.py fix SpaceX      # re-label an email already labeled
+    uv run python label.py rename-key "Old | Key" "New | Key"
 
 Stdlib only. Reads the same SQLite file the TypeScript sync writes.
 """
@@ -13,16 +13,16 @@ Stdlib only. Reads the same SQLite file the TypeScript sync writes.
 from __future__ import annotations
 
 import argparse
-import os
 import random
 import re
 import sqlite3
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Sequence
 from datetime import datetime
-from pathlib import Path
+from typing import Literal
 
-DB_PATH = Path(os.environ.get("AGENT_DB", Path(__file__).resolve().parent.parent / "data" / "agent.db"))
+from db import DB_PATH, connect
 
 # One email, one category. "Needs follow-up" is deliberately NOT a category:
 # it depends on what happened after the email (state), not on the email itself.
@@ -50,83 +50,95 @@ KEYWORDS = re.compile(
     r"next steps|move forward|unfortunately|requisition)\b"
     r"|greenhouse|lever\.co|workday|ashbyhq|smartrecruiters|icims|jobvite|taleo|"
     r"successfactors|workable|hackerrank|codesignal|hirevue|karat|wellfound|handshake",
-    re.I,
+    re.IGNORECASE,
 )
 MAX_PER_SENDER_DOMAIN = 4  # stop one job board from eating the whole sample
+BODY_PREVIEW_CHARS = 1500
+
+Bucket = Literal["keyword", "random", "targeted"]
+PromptOutcome = Literal["saved", "skip", "undo", "quit", "invalid"]
+# What the application-key prompt returns besides a key: go back, or quit.
+KEY_BACK = "b"
+KEY_QUIT = "q"
 
 
-def connect() -> sqlite3.Connection:
-    if not DB_PATH.exists():
-        sys.exit(f"No database at {DB_PATH}. Run `npm run ingest` first.")
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS label_queue (
-             position INTEGER PRIMARY KEY,
-             account  TEXT NOT NULL,
-             gmail_id TEXT NOT NULL,
-             bucket   TEXT NOT NULL,          -- 'keyword', 'random' or 'targeted'
-             UNIQUE (account, gmail_id))"""
-    )
-    return conn
+# ---------------------------------------------------------------- domains
 
-# naive: "x.co.uk" -> "co.uk".
+
 def base_domain(domain: str | None) -> str:
-    parts = (domain or "").split(".")
-    return ".".join(parts[-2:]) if len(parts) >= 2 else "?"
+    """'notifications.joinhandshake.com' -> 'joinhandshake.com'. Naive: 'x.co.uk' -> 'co.uk'."""
+    labels = (domain or "").split(".")
+    return ".".join(labels[-2:]) if len(labels) >= 2 else "?"
 
 
-def sender_domain(from_addr: str | None) -> str:
-    m = re.search(r"@([\w.-]+)", from_addr or "")
-    return base_domain(m.group(1).lower() if m else "?")
+def sender_domain(from_address: str | None) -> str:
+    address_match = re.search(r"@([\w.-]+)", from_address or "")
+    return base_domain(address_match.group(1).lower() if address_match else "?")
 
 
 # ---------------------------------------------------------------- sample
 
-def cmd_sample(conn: sqlite3.Connection, n: int, seed: int, keyword_share: float, force: bool) -> None:
-    if conn.execute("SELECT COUNT(*) FROM label_queue").fetchone()[0] and not force:
+
+def matches_keywords(message: sqlite3.Row) -> bool:
+    return bool(KEYWORDS.search(f"{message['from_addr']} {message['subject']} {message['body']}"))
+
+
+def choose_sample(
+    messages: Sequence[sqlite3.Row], sample_size: int, seed: int, keyword_share: float
+) -> list[tuple[sqlite3.Row, Bucket]]:
+    """Pick the eval sample: mostly keyword matches (capped per sender domain), the rest at random.
+
+    Deterministic for a given seed and input order. Rows need from_addr, subject and body.
+    """
+    rng = random.Random(seed)
+    keyword_matches = [message for message in messages if matches_keywords(message)]
+    others = [message for message in messages if not matches_keywords(message)]
+    rng.shuffle(keyword_matches)
+    rng.shuffle(others)
+
+    keyword_quota = min(round(sample_size * keyword_share), len(keyword_matches))
+    picked_per_domain: Counter[str] = Counter()
+    picked: list[tuple[sqlite3.Row, Bucket]] = []
+    for message in keyword_matches:
+        if len(picked) >= keyword_quota:
+            break
+        domain = sender_domain(message["from_addr"])
+        if picked_per_domain[domain] < MAX_PER_SENDER_DOMAIN:
+            picked_per_domain[domain] += 1
+            picked.append((message, "keyword"))
+    # Random fills the rest, including any keyword quota the domain cap left unused.
+    picked += [(message, "random") for message in others[: sample_size - len(picked)]]
+    rng.shuffle(picked)  # interleave so labeling order doesn't reveal the bucket
+    return picked
+
+
+def cmd_sample(connection: sqlite3.Connection, sample_size: int, seed: int, keyword_share: float, force: bool) -> None:
+    if queued_count(connection) and not force:
         sys.exit("A sample already exists. Re-sampling changes your eval set; use --force if you mean it.")
-    rows = conn.execute(
+    messages = connection.execute(
         "SELECT account, gmail_id, from_addr, subject, substr(body_text, 1, 3000) AS body "
         "FROM messages ORDER BY account, gmail_id"
     ).fetchall()
-    if not rows:
+    if not messages:
         sys.exit("No messages yet. Run `npm run ingest` first.")
 
-    rng = random.Random(seed)  # fixed seed: the same DB always yields the same sample
-    hits: list[sqlite3.Row] = []
-    rest: list[sqlite3.Row] = []
-    for r in rows:
-        text = f"{r['from_addr']} {r['subject']} {r['body']}"
-        (hits if KEYWORDS.search(text) else rest).append(r)
-    rng.shuffle(hits)
-    rng.shuffle(rest)
-
-    n_kw = min(round(n * keyword_share), len(hits))
-    per_domain: Counter[str] = Counter()
-    picked: list[tuple[sqlite3.Row, str]] = []
-    for r in hits:
-        if len(picked) >= n_kw:
-            break
-        d = sender_domain(r["from_addr"])
-        if per_domain[d] < MAX_PER_SENDER_DOMAIN:
-            per_domain[d] += 1
-            picked.append((r, "keyword"))
-    # Random fills the rest, including any keyword quota the domain cap left unused.
-    picked += [(r, "random") for r in rest[: n - len(picked)]]
-    rng.shuffle(picked)  # interleave so labeling order doesn't reveal the bucket
-
-    conn.execute("DELETE FROM label_queue")
-    conn.executemany(
+    picked = choose_sample(messages, sample_size, seed, keyword_share)
+    connection.execute("DELETE FROM label_queue")
+    connection.executemany(
         "INSERT INTO label_queue (position, account, gmail_id, bucket) VALUES (?, ?, ?, ?)",
-        [(i, r["account"], r["gmail_id"], b) for i, (r, b) in enumerate(picked)],
+        [(position, message["account"], message["gmail_id"], bucket) for position, (message, bucket) in enumerate(picked)],
     )
-    conn.commit()
-    b = Counter(bucket for _, bucket in picked)
+    connection.commit()
+    bucket_counts = Counter(bucket for _, bucket in picked)
+    keyword_total = sum(1 for message in messages if matches_keywords(message))
     print(
-        f"Queued {len(picked)} of {len(rows)} messages "
-        f"({b['keyword']} keyword matches, {b['random']} random; {len(hits)} total keyword matches)."
+        f"Queued {len(picked)} of {len(messages)} messages ({bucket_counts['keyword']} keyword matches, "
+        f"{bucket_counts['random']} random; {keyword_total} total keyword matches)."
     )
+
+
+def queued_count(connection: sqlite3.Connection) -> int:
+    return int(connection.execute("SELECT COUNT(*) FROM label_queue").fetchone()[0])
 
 
 # ---------------------------------------------------------------- label
@@ -138,29 +150,32 @@ MENU = (
 )
 
 
-def cmd_label(conn: sqlite3.Connection) -> None:
-    total = conn.execute("SELECT COUNT(*) FROM label_queue").fetchone()[0]
-    if not total:
-        sys.exit("Nothing queued. Run: uv run py/label.py sample")
-    skipped: set[int] = set()
+def cmd_label(connection: sqlite3.Connection) -> None:
+    queue_size = queued_count(connection)
+    if not queue_size:
+        sys.exit("Nothing queued. Run: uv run python label.py sample")
+    skipped_positions: set[int] = set()
     while True:
-        done = conn.execute(
-            "SELECT COUNT(*) FROM label_queue q JOIN labels l USING (account, gmail_id)"
-        ).fetchone()[0]
-        row = next_unlabeled(conn, skipped)
-        if row is None:
-            print(f"\nDone: {done}/{total} labeled" + (f", {len(skipped)} skipped this session." if skipped else "."))
+        labeled_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM label_queue q JOIN labels l USING (account, gmail_id)"
+            ).fetchone()[0]
+        )
+        email = next_unlabeled(connection, skipped_positions)
+        if email is None:
+            skipped_note = f", {len(skipped_positions)} skipped this session." if skipped_positions else "."
+            print(f"\nDone: {labeled_count}/{queue_size} labeled{skipped_note}")
             return
-        result = prompt_label(conn, row, f"[{done + 1}/{total}]  {row['bucket']}")
-        if result == "quit":
+        outcome = prompt_label(connection, email, f"[{labeled_count + 1}/{queue_size}]  {email['bucket']}")
+        if outcome == "quit":
             return
-        if result == "skip":
-            skipped.add(row["position"])
+        if outcome == "skip":
+            skipped_positions.add(email["position"])
 
 
-def prompt_label(conn: sqlite3.Connection, row: sqlite3.Row, header: str) -> str:
-    """Show one email, ask for its label, save it. Returns saved | skip | undo | quit | invalid."""
-    show(row, header)
+def prompt_label(connection: sqlite3.Connection, email: sqlite3.Row, header: str) -> PromptOutcome:
+    """Show one email, ask for its label, save it."""
+    show(email, header)
     print(MENU)
     choice = ask("> ")
     if choice == "q":
@@ -168,10 +183,10 @@ def prompt_label(conn: sqlite3.Connection, row: sqlite3.Row, header: str) -> str
     if choice == "s":
         return "skip"
     if choice == "z":
-        undo_last(conn)
+        undo_last(connection)
         return "undo"
     if choice == "m":
-        print(row["body_text"] or "")
+        print(email["body_text"] or "")
         choice = ask("> ")
     wants_note = choice.endswith("!")
     category = CATEGORIES.get(choice.rstrip("!"))
@@ -179,89 +194,112 @@ def prompt_label(conn: sqlite3.Connection, row: sqlite3.Row, header: str) -> str
         print(f"  ? '{choice}' isn't an option")
         return "invalid"
 
-    key = None if category in NO_KEY else ask_application_key(conn, row)
-    if key == "b":
+    application_key = None if category in NO_KEY else ask_application_key(connection, email)
+    if application_key == KEY_BACK:
         return "invalid"  # nothing saved; the same email is shown again
-    if key == "q":
+    if application_key == KEY_QUIT:
         return "quit"
     note = (ask("Note: ") or None) if wants_note else None
-    conn.execute(
-        "INSERT OR REPLACE INTO labels (account, gmail_id, category, application_key, notes) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (row["account"], row["gmail_id"], category, key, note),
-    )
-    conn.commit()
+    save_label(connection, email, category, application_key, note)
     return "saved"
 
 
-def next_unlabeled(conn: sqlite3.Connection, skipped: set[int]) -> sqlite3.Row | None:
-    row: sqlite3.Row
-    for row in conn.execute(
+def save_label(
+    connection: sqlite3.Connection, email: sqlite3.Row, category: str, application_key: str | None, note: str | None
+) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO labels (account, gmail_id, category, application_key, notes) VALUES (?, ?, ?, ?, ?)",
+        (email["account"], email["gmail_id"], category, application_key, note),
+    )
+    connection.commit()
+
+
+def next_unlabeled(connection: sqlite3.Connection, skipped_positions: set[int]) -> sqlite3.Row | None:
+    candidate: sqlite3.Row
+    for candidate in connection.execute(
         """SELECT q.position, q.bucket, m.* FROM label_queue q
            JOIN messages m USING (account, gmail_id)
            LEFT JOIN labels l USING (account, gmail_id)
            WHERE l.category IS NULL ORDER BY q.position"""
     ):
-        if row["position"] not in skipped:
-            return row
+        if candidate["position"] not in skipped_positions:
+            return candidate
     return None
 
 
-def show(row: sqlite3.Row, header: str) -> None:
-    when = datetime.fromtimestamp(row["internal_date"] / 1000).strftime("%Y-%m-%d %H:%M")
-    body = (row["body_text"] or "").strip()
+def show(email: sqlite3.Row, header: str) -> None:
+    received = datetime.fromtimestamp(email["internal_date"] / 1000).strftime("%Y-%m-%d %H:%M")
+    body = (email["body_text"] or "").strip()
     print("\n" + "=" * 78)
-    print(f"{header}  {row['account']}  {when}")
-    print(f"From:    {row['from_addr']}")
-    print(f"Subject: {row['subject']}")
+    print(f"{header}  {email['account']}  {received}")
+    print(f"From:    {email['from_addr']}")
+    print(f"Subject: {email['subject']}")
     print("-" * 78)
-    print(body[:1500] + ("\n  ... (m for more)" if len(body) > 1500 else ""))
+    print(body[:BODY_PREVIEW_CHARS] + ("\n  ... (m for more)" if len(body) > BODY_PREVIEW_CHARS else ""))
     print("-" * 78)
 
 
-def ask_application_key(conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
-    """The same application must always get the exact same key, or the linking eval measures labeling noise."""
-    keys = [str(r[0]) for r in conn.execute(
-        "SELECT application_key FROM labels WHERE application_key IS NOT NULL "
-        "GROUP BY application_key ORDER BY MAX(rowid) DESC"
-    )]
-    haystack = f"{row['from_addr']} {row['subject']} {row['body_text']}".lower()
-    suggestions = [k for k in keys if k.split(" | ")[0].lower() in haystack][:9] or keys[:5]
+def existing_keys(connection: sqlite3.Connection, excluding: str | None = None) -> list[str]:
+    """Application keys already in use, most recently used first."""
+    rows = connection.execute(
+        "SELECT application_key FROM labels WHERE application_key IS NOT NULL AND application_key IS NOT ? "
+        "GROUP BY application_key ORDER BY MAX(rowid) DESC",
+        (excluding,),
+    )
+    return [str(row[0]) for row in rows]
 
+
+def suggest_keys(known_keys: list[str], email: sqlite3.Row) -> list[str]:
+    """Keys whose company appears in the email; otherwise the most recent ones."""
+    haystack = f"{email['from_addr']} {email['subject']} {email['body_text']}".lower()
+    by_company = [key for key in known_keys if company_of(key).lower() in haystack]
+    return by_company[:9] or known_keys[:5]
+
+
+def ask_application_key(connection: sqlite3.Connection, email: sqlite3.Row) -> str | None:
+    """The same application must always get the exact same key, or the linking eval measures labeling noise.
+
+    Returns a key, None (no key), KEY_BACK or KEY_QUIT.
+    """
+    known_keys = existing_keys(connection)
+    suggestions = suggest_keys(known_keys, email)
     print("Application as 'Company | Role' (role unknown: 'Company | ?'). Enter = none, b = back, q = quit.")
-    for i, k in enumerate(suggestions, 1):
-        print(f"  {i}) {k}")
+    for number, key in enumerate(suggestions, 1):
+        print(f"  {number}) {key}")
     while True:
-        raw = ask("app> ")
-        if not raw:
+        answer = ask("app> ")
+        if not answer:
             return None
-        if raw in ("b", "q"):
-            return raw  # sentinel: caller goes back to the category or quits
-        if raw.isdigit() and 1 <= int(raw) <= len(suggestions):
-            return suggestions[int(raw) - 1]
-        if "|" not in raw:
+        if answer in (KEY_BACK, KEY_QUIT):
+            return answer
+        if answer.isdigit() and 1 <= int(answer) <= len(suggestions):
+            return suggestions[int(answer) - 1]
+        if "|" not in answer:
             print("  needs a '|', e.g. 'Stripe | Backend Engineer' or 'Stripe | ?'")
             continue
-        return normalize_key(raw, keys)
+        return normalize_key(answer, known_keys)
 
 
-def normalize_key(raw: str, existing: list[str]) -> str:
+def company_of(application_key: str) -> str:
+    return application_key.split(" | ")[0]
+
+
+def normalize_key(raw_key: str, known_keys: Iterable[str]) -> str:
     """'google|  Backend  Eng ' -> 'Google | Backend Eng' (reusing a known company spelling)."""
-    company, role = (" ".join(part.split()) for part in raw.split("|", 1))
-    known = {k.split(" | ")[0].lower(): k.split(" | ")[0] for k in existing}
-    company = known.get(company.lower(), company)
+    company, role = (" ".join(part.split()) for part in raw_key.split("|", 1))
+    known_spellings = {company_of(key).lower(): company_of(key) for key in known_keys}
+    company = known_spellings.get(company.lower(), company)
     return f"{company} | {role or '?'}"
 
 
-def undo_last(conn: sqlite3.Connection) -> None:
-    last = conn.execute(
-        "SELECT l.rowid, m.subject FROM labels l JOIN messages m USING (account, gmail_id) "
-        "ORDER BY l.rowid DESC LIMIT 1"
+def undo_last(connection: sqlite3.Connection) -> None:
+    last_label = connection.execute(
+        "SELECT l.rowid, m.subject FROM labels l JOIN messages m USING (account, gmail_id) ORDER BY l.rowid DESC LIMIT 1"
     ).fetchone()
-    if last:
-        conn.execute("DELETE FROM labels WHERE rowid = ?", (last["rowid"],))
-        conn.commit()
-        print(f"  undid: {last['subject']}")
+    if last_label:
+        connection.execute("DELETE FROM labels WHERE rowid = ?", (last_label["rowid"],))
+        connection.commit()
+        print(f"  undid: {last_label['subject']}")
 
 
 def ask(prompt: str) -> str:
@@ -273,154 +311,189 @@ def ask(prompt: str) -> str:
 
 # ---------------------------------------------------------------- targeted additions & fixes
 
-def cmd_search(conn: sqlite3.Connection, text: str, limit: int) -> None:
+
+def cmd_search(connection: sqlite3.Connection, search_text: str, limit: int) -> None:
     """Find rare cases (offers, scheduling...) and add them to the queue as 'targeted'.
 
     Targeted emails are hand-picked, so they're biased: they fill coverage gaps,
     and stats reports them separately from the sampled buckets.
     """
-    like = f"%{text}%"
-    rows = conn.execute(
+    pattern = f"%{search_text}%"
+    matches = connection.execute(
         """SELECT m.account, m.gmail_id, m.internal_date, m.from_addr, m.subject FROM messages m
            LEFT JOIN label_queue q USING (account, gmail_id)
            WHERE q.gmail_id IS NULL
              AND (m.subject LIKE ? OR m.from_addr LIKE ? OR m.body_text LIKE ?)
            ORDER BY m.internal_date DESC LIMIT ?""",
-        (like, like, like, limit),
+        (pattern, pattern, pattern, limit),
     ).fetchall()
-    if not rows:
-        print(f"No unqueued emails match '{text}'.")
+    if not matches:
+        print(f"No unqueued emails match '{search_text}'.")
         return
-    for i, r in enumerate(rows, 1):
-        when = datetime.fromtimestamp(r["internal_date"] / 1000).strftime("%Y-%m-%d")
-        print(f"{i:3}) {when}  {(r['from_addr'] or '')[:32]:32}  {(r['subject'] or '')[:70]}")
-    picks = ask("Add which? (e.g. 1 4 7, Enter = none) ").replace(",", " ").split()
-    chosen = [rows[int(p) - 1] for p in picks if p.isdigit() and 1 <= int(p) <= len(rows)]
-    start = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM label_queue").fetchone()[0]
-    conn.executemany(
+    for number, match in enumerate(matches, 1):
+        received = datetime.fromtimestamp(match["internal_date"] / 1000).strftime("%Y-%m-%d")
+        print(f"{number:3}) {received}  {(match['from_addr'] or '')[:32]:32}  {(match['subject'] or '')[:70]}")
+    answers = ask("Add which? (e.g. 1 4 7, Enter = none) ").replace(",", " ").split()
+    chosen = [matches[int(answer) - 1] for answer in answers if answer.isdigit() and 1 <= int(answer) <= len(matches)]
+    added = add_targeted(connection, chosen)
+    print(f"Added {added}. Run `label` to label them.")
+
+
+def add_targeted(connection: sqlite3.Connection, emails: Sequence[sqlite3.Row]) -> int:
+    """Append emails to the end of the queue; already-queued ones are ignored. Returns how many were added."""
+    next_position = int(connection.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM label_queue").fetchone()[0])
+    before = queued_count(connection)
+    connection.executemany(
         "INSERT OR IGNORE INTO label_queue (position, account, gmail_id, bucket) VALUES (?, ?, ?, 'targeted')",
-        [(start + i, r["account"], r["gmail_id"]) for i, r in enumerate(chosen)],
+        [(next_position + offset, email["account"], email["gmail_id"]) for offset, email in enumerate(emails)],
     )
-    conn.commit()
-    print(f"Added {len(chosen)}. Run `label` to label them.")
+    connection.commit()
+    return queued_count(connection) - before
 
 
-def cmd_fix(conn: sqlite3.Connection, text: str) -> None:
+def cmd_fix(connection: sqlite3.Connection, search_text: str) -> None:
     """Re-label an already-labeled email, found by subject, sender or application key."""
-    like = f"%{text}%"
-    rows = conn.execute(
+    pattern = f"%{search_text}%"
+    matches = connection.execute(
         """SELECT q.position, q.bucket, m.*, l.category, l.application_key FROM labels l
            JOIN messages m USING (account, gmail_id)
            JOIN label_queue q USING (account, gmail_id)
            WHERE m.subject LIKE ? OR m.from_addr LIKE ? OR l.application_key LIKE ?
            ORDER BY m.internal_date""",
-        (like, like, like),
+        (pattern, pattern, pattern),
     ).fetchall()
-    if not rows:
-        print(f"No labeled emails match '{text}'.")
+    if not matches:
+        print(f"No labeled emails match '{search_text}'.")
         return
-    for i, r in enumerate(rows, 1):
-        when = datetime.fromtimestamp(r["internal_date"] / 1000).strftime("%Y-%m-%d %H:%M")
-        print(f"{i:3}) {when}  {r['category']:24}  {(r['subject'] or '')[:40]:40}  {r['application_key'] or ''}")
-    pick = ask("Re-label which? (number, Enter = none) ")
-    if pick.isdigit() and 1 <= int(pick) <= len(rows):
-        row = rows[int(pick) - 1]
-        while prompt_label(conn, row, f"[fix, was {row['category']}]") == "invalid":
+    for number, match in enumerate(matches, 1):
+        received = datetime.fromtimestamp(match["internal_date"] / 1000).strftime("%Y-%m-%d %H:%M")
+        subject = (match["subject"] or "")[:40]
+        print(f"{number:3}) {received}  {match['category']:24}  {subject:40}  {match['application_key'] or ''}")
+    answer = ask("Re-label which? (number, Enter = none) ")
+    if answer.isdigit() and 1 <= int(answer) <= len(matches):
+        email = matches[int(answer) - 1]
+        while prompt_label(connection, email, f"[fix, was {email['category']}]") == "invalid":
             pass
 
 
-def cmd_rename_key(conn: sqlite3.Connection, old: str, new: str) -> None:
-    """Fix a typo in an application key everywhere it's used."""
-    n = conn.execute("SELECT COUNT(*) FROM labels WHERE application_key = ?", (old,)).fetchone()[0]
-    if not n:
-        sys.exit(f"No labels use the key '{old}'. Check `stats` or `fix` for the exact spelling.")
-    if "|" not in new:
-        sys.exit("New key needs a '|', e.g. 'GitHub | Software Engineer I, Secret Scanning'.")
-    others = [r[0] for r in conn.execute(
-        "SELECT DISTINCT application_key FROM labels WHERE application_key IS NOT NULL AND application_key != ?", (old,)
-    )]
-    new = normalize_key(new, others)
-    conn.execute("UPDATE labels SET application_key = ? WHERE application_key = ?", (new, old))
-    conn.commit()
-    merged = " (merged with an existing key)" if new in others else ""
-    print(f"Renamed {n} label(s): '{old}' -> '{new}'{merged}")
+def rename_key(connection: sqlite3.Connection, old_key: str, new_key: str) -> tuple[int, str, bool]:
+    """Rename an application key everywhere. Returns (labels changed, normalized new key, merged into existing key)."""
+    usage_count = int(
+        connection.execute("SELECT COUNT(*) FROM labels WHERE application_key = ?", (old_key,)).fetchone()[0]
+    )
+    if not usage_count:
+        raise ValueError(f"No labels use the key '{old_key}'. Check `stats` or `fix` for the exact spelling.")
+    if "|" not in new_key:
+        raise ValueError("New key needs a '|', e.g. 'GitHub | Software Engineer I, Secret Scanning'.")
+    other_keys = existing_keys(connection, excluding=old_key)
+    normalized = normalize_key(new_key, other_keys)
+    connection.execute("UPDATE labels SET application_key = ? WHERE application_key = ?", (normalized, old_key))
+    connection.commit()
+    return usage_count, normalized, normalized in other_keys
+
+
+def cmd_rename_key(connection: sqlite3.Connection, old_key: str, new_key: str) -> None:
+    try:
+        usage_count, normalized, merged = rename_key(connection, old_key, new_key)
+    except ValueError as error:
+        sys.exit(str(error))
+    merged_note = " (merged with an existing key)" if merged else ""
+    print(f"Renamed {usage_count} label(s): '{old_key}' -> '{normalized}'{merged_note}")
 
 
 # ---------------------------------------------------------------- stats
 
-def cmd_stats(conn: sqlite3.Connection) -> None:
-    rows = conn.execute(
-        """SELECT q.bucket, l.category, l.application_key FROM label_queue q
-           LEFT JOIN labels l USING (account, gmail_id)"""
-    ).fetchall()
-    labeled = [r for r in rows if r["category"]]
-    print(f"Labeled {len(labeled)}/{len(rows)}\n")
 
-    by_cat: dict[str, Counter[str]] = defaultdict(Counter)
-    for r in labeled:
-        by_cat[r["category"]][r["bucket"]] += 1
-    print(f"{'category':26} {'total':>5} {'keyword':>8} {'random':>7} {'targeted':>9}")
-    for cat in CATEGORIES.values():
-        c = by_cat.get(cat, Counter())
-        n = sum(c.values())
-        flag = "   <- none yet" if not n else "   <- thin" if n < 3 else ""
-        print(f"{cat:26} {n:5} {c['keyword']:8} {c['random']:7} {c['targeted']:9}{flag}")
+def near_duplicate_keys(keys: Iterable[str]) -> list[list[str]]:
+    """Groups of keys that differ only in case, spacing or punctuation: usually typos."""
+    groups: defaultdict[str, list[str]] = defaultdict(list)
+    for key in sorted(set(keys)):
+        groups[re.sub(r"[^a-z0-9]", "", key.lower())].append(key)
+    return [group for group in groups.values() if len(group) > 1]
+
+
+def cmd_stats(connection: sqlite3.Connection) -> None:
+    queue = connection.execute(
+        "SELECT q.bucket, l.category, l.application_key FROM label_queue q LEFT JOIN labels l USING (account, gmail_id)"
+    ).fetchall()
+    labeled = [entry for entry in queue if entry["category"]]
+    print(f"Labeled {len(labeled)}/{len(queue)}\n")
+    print_category_table(labeled)
 
     # Recruiting mail the keyword filter missed. If this isn't ~0, the filter
     # has blind spots and the classifier must not rely on it.
-    missed = [r for r in labeled if r["bucket"] == "random" and r["category"] not in NO_KEY]
+    missed = [entry for entry in labeled if entry["bucket"] == "random" and entry["category"] not in NO_KEY]
     print(f"\nRecruiting emails found in the random bucket (keyword filter missed): {len(missed)}")
 
-    keys = {r["application_key"] for r in labeled if r["application_key"]}
-    per_company = Counter(k.split(" | ")[0] for k in keys)
-    multi = {c: n for c, n in per_company.items() if n > 1}
-    print(f"Distinct applications: {len(keys)} across {len(per_company)} companies")
-    # Near-duplicate keys are usually typos, and typos make the linking eval wrong.
-    norm: dict[str, list[str]] = defaultdict(list)
-    for k in keys:
-        norm[re.sub(r"[^a-z0-9]", "", k.lower())].append(k)
-    dupes = [v for v in norm.values() if len(v) > 1]
-    if dupes:
-        print(f"Keys that differ only in case/spacing/punctuation (fix with rename-key): {dupes}")
-    print(f"Companies with several applications (the hard linking case): {multi or 'none yet'}")
+    keys = {entry["application_key"] for entry in labeled if entry["application_key"]}
+    applications_per_company = Counter(company_of(key) for key in keys)
+    multi_application = {company: count for company, count in applications_per_company.items() if count > 1}
+    print(f"Distinct applications: {len(keys)} across {len(applications_per_company)} companies")
+    duplicates = near_duplicate_keys(keys)
+    if duplicates:
+        print(f"Keys that differ only in case/spacing/punctuation (fix with rename-key): {duplicates}")
+    print(f"Companies with several applications (the hard linking case): {multi_application or 'none yet'}")
+
+
+def print_category_table(labeled: Sequence[sqlite3.Row]) -> None:
+    by_category: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for entry in labeled:
+        by_category[entry["category"]][entry["bucket"]] += 1
+    print(f"{'category':26} {'total':>5} {'keyword':>8} {'random':>7} {'targeted':>9}")
+    for category in CATEGORIES.values():
+        bucket_counts = by_category.get(category, Counter())
+        total = sum(bucket_counts.values())
+        flag = "   <- none yet" if not total else "   <- thin" if total < 3 else ""
+        print(
+            f"{category:26} {total:5} {bucket_counts['keyword']:8} {bucket_counts['random']:7} "
+            f"{bucket_counts['targeted']:9}{flag}"
+        )
+
+
+# ---------------------------------------------------------------- CLI
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    commands = parser.add_subparsers(dest="command")
+    sample = commands.add_parser("sample", help="choose which emails to label")
+    sample.add_argument("--n", dest="sample_size", type=int, default=100)
+    sample.add_argument("--seed", type=int, default=7)
+    sample.add_argument("--keyword-share", type=float, default=0.7)
+    sample.add_argument("--force", action="store_true")
+    commands.add_parser("label", help="label queued emails (default)")
+    commands.add_parser("stats", help="coverage of your labels")
+    search = commands.add_parser("search", help="find emails by text and add them to the queue")
+    search.add_argument("text")
+    search.add_argument("--limit", type=int, default=30)
+    fix = commands.add_parser("fix", help="re-label an already-labeled email")
+    fix.add_argument("text")
+    rename = commands.add_parser("rename-key", help="rename an application key everywhere")
+    rename.add_argument("old")
+    rename.add_argument("new")
+    return parser
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = p.add_subparsers(dest="cmd")
-    s = sub.add_parser("sample", help="choose which emails to label")
-    s.add_argument("--n", type=int, default=100)
-    s.add_argument("--seed", type=int, default=7)
-    s.add_argument("--keyword-share", type=float, default=0.7)
-    s.add_argument("--force", action="store_true")
-    sub.add_parser("label", help="label queued emails (default)")
-    sub.add_parser("stats", help="coverage of your labels")
-    se = sub.add_parser("search", help="find emails by text and add them to the queue")
-    se.add_argument("text")
-    se.add_argument("--limit", type=int, default=30)
-    fx = sub.add_parser("fix", help="re-label an already-labeled email")
-    fx.add_argument("text")
-    rk = sub.add_parser("rename-key", help="rename an application key everywhere")
-    rk.add_argument("old")
-    rk.add_argument("new")
-    a = p.parse_args()
-
-    conn = connect()
+    args = build_parser().parse_args()
+    if not DB_PATH.exists():
+        sys.exit(f"No database at {DB_PATH}. Run `npm run ingest` first.")
+    connection = connect()
     try:
-        if a.cmd == "sample":
-            cmd_sample(conn, a.n, a.seed, a.keyword_share, a.force)
-        elif a.cmd == "stats":
-            cmd_stats(conn)
-        elif a.cmd == "search":
-            cmd_search(conn, a.text, a.limit)
-        elif a.cmd == "fix":
-            cmd_fix(conn, a.text)
-        elif a.cmd == "rename-key":
-            cmd_rename_key(conn, a.old, a.new)
+        if args.command == "sample":
+            cmd_sample(connection, args.sample_size, args.seed, args.keyword_share, args.force)
+        elif args.command == "stats":
+            cmd_stats(connection)
+        elif args.command == "search":
+            cmd_search(connection, args.text, args.limit)
+        elif args.command == "fix":
+            cmd_fix(connection, args.text)
+        elif args.command == "rename-key":
+            cmd_rename_key(connection, args.old, args.new)
         else:
-            cmd_label(conn)
+            cmd_label(connection)
     finally:
-        conn.close()
+        connection.close()
 
 
 if __name__ == "__main__":
