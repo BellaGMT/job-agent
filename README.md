@@ -45,7 +45,7 @@ Each email gets one of 11 categories plus an application key (`Company | Role`).
 
 ## Setup
 
-Requires Node 22+ and Python 3.12+.
+Requires Node 22+, Python 3.11+ and [uv](https://docs.astral.sh/uv/). Classification needs an `ANTHROPIC_API_KEY` in a repo-root `.env`.
 
 1. In Google Cloud Console, create a project and enable the **Gmail API**.
 2. Configure the OAuth consent screen as **External**, and add each inbox as a test user.
@@ -67,8 +67,10 @@ In Testing mode, Google revokes refresh tokens after 7 days. The sync detects th
 ## Development
 
 ```bash
-npm test           # unit tests
+npm test                      # TypeScript unit tests
 npm run typecheck
+cd py && uv run pytest        # Python unit tests
+cd py && uv run python eval_classify.py   # classifier eval against the labeled set
 ```
 
 ## Layout
@@ -82,4 +84,10 @@ src/
   gmail/parse.ts    MIME tree -> clean text (+ tests)
 py/
   label.py          eval-set sampling, labeling CLI, coverage stats
+  explore.py        sender-domain volume vs. keyword pre-filter coverage
+  data.py           typed access to messages and labels
+  classify.py       structured-output classification + extraction, disk-cached
+  eval_classify.py  per-category precision/recall, recruiting recall, error report
+  prompts/          classifier system prompt
+  tests/
 ```

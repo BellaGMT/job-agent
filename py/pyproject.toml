@@ -2,5 +2,19 @@
 name = "job-agent-py"
 version = "0.1.0"
 description = "Data side of the personal agent: labeling, evals, prompt experiments"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.0",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
