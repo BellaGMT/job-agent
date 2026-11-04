@@ -65,32 +65,23 @@ def per_category(results: list[Result]) -> dict[str, CategoryScore]:
       a -> support 2, predicted 1, correct 1
       b -> support 1, predicted 2, correct 1
     """
-    scores : dict[str, CategoryScore] = {}
+    scores: dict[str, CategoryScore] = {}
+    support: Counter[str] = Counter()
+    predicted: Counter[str] = Counter()
+    correct: Counter[str] = Counter()
     for result in results:
         expected = result.expected
-        predicted = result.predicted
-        if expected not in scores:
-            scores[expected] = CategoryScore(support=1, predicted=0, correct=0)
-        else:
-            scores[expected] = CategoryScore(
-                support=scores[expected].support + 1,
-                predicted=scores[expected].predicted,
-                correct=scores[expected].correct,
-            )
-        if predicted not in scores:
-            scores[predicted] = CategoryScore(support=0, predicted=1, correct=0)
-        else:
-            scores[predicted] = CategoryScore(
-                support=scores[predicted].support,
-                predicted=scores[predicted].predicted + 1,
-                correct=scores[predicted].correct,
-            )
-        if expected == predicted:
-            scores[expected] = CategoryScore(
-                support=scores[expected].support,
-                predicted=scores[expected].predicted,
-                correct=scores[expected].correct + 1,
-            )
+        predicted_ = result.predicted
+        support[expected] += 1
+        predicted[predicted_] += 1
+        if expected == predicted_:
+            correct[expected] += 1
+    for category in set(support) | set(predicted):
+        scores[category] = CategoryScore(
+            support=support.get(category, 0),
+            predicted=predicted.get(category, 0),
+            correct=correct.get(category, 0),
+        )
     return scores
 
 
@@ -100,15 +91,15 @@ def confusions(results: list[Result]) -> list[tuple[str, str, int]]:
     Sorted by count, highest first; ties sorted alphabetically by (expected, predicted).
     Correct predictions never appear.
     """
-    confusion_counts: dict[tuple[str, str], int] = {}
+    confusion_counts: Counter[tuple[str, str]] = Counter()
     for result in results:
         expected = result.expected
         predicted = result.predicted
         if expected != predicted:
-            confusion_counts[(expected, predicted)] = confusion_counts.get((expected, predicted), 0) + 1
+            confusion_counts[(expected, predicted)] += 1
     return sorted(
         [(expected, predicted, count) for (expected, predicted), count in confusion_counts.items()],
-        key=lambda x: (-x[2], x[0], x[1]),
+        key=lambda entry: (-entry[2], entry[0], entry[1]),
     )
 
 
@@ -139,14 +130,8 @@ def accuracy_by_bucket(results: list[Result]) -> dict[str, float]:
     Targeted emails were hand-picked hard cases, so they're reported apart
     from the sampled ones (keyword + random) instead of blended in.
     """
-    accuracy_by_bucket: dict[str, float] = {}
-    for bucket in set(result.bucket for result in results):
-        bucket_results = [result for result in results if result.bucket == bucket]
-        if not bucket_results:
-            accuracy_by_bucket[bucket] = 0.0
-        else:
-            accuracy_by_bucket[bucket] = sum(result.predicted == result.expected for result in bucket_results) / len(bucket_results)
-    return accuracy_by_bucket
+    buckets = {result.bucket for result in results}
+    return {bucket: accuracy([result for result in results if result.bucket == bucket]) for bucket in buckets}
 
 
 # ------------------------------------------------------------------ wiring
