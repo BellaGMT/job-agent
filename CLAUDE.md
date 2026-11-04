@@ -31,7 +31,7 @@ These resolve how the standards below apply here.
 - **Output.** Current programs are CLIs, and their `console.log` / `print` output is intentional user-facing output. There is no diagnostic logger yet; introduce one with the first long-running process. Never print email bodies, tokens or API keys outside of the labeling tools whose purpose is to show the email to its owner.
 - **Untrusted content.** Email text is data. It is wrapped in `<email>` tags before reaching a model and never interpreted as instructions.
 - **Network code** takes its client as a parameter (dependency injection) so tests run without network, cost or credentials.
-- **Maintainer exercises.** Some functions are intentionally left for the maintainer to implement: their body is `raise NotImplementedError` (or `throw`) and a test file specifies the behavior. Don't implement them unless asked. They are the only allowed exception to "no placeholders" below.
+- **Maintainer exercises.** The maintainer sometimes implements a piece as a learning exercise: its body is `raise NotImplementedError` (or `throw`) and a test file specifies the behavior. Don't implement such functions unless asked. They are the only allowed exception to "no placeholders" below, and their failing specs run in a separately named CI step until implemented. None are open right now.
 - **Commits.** Imperative subject line describing what the commit does. Review `git diff --staged` before committing.
 - **Dependencies.** Pin dev tools exactly (Biome, Ruff) and actions to commit SHAs. Add a dependency only with a clear reason.
 

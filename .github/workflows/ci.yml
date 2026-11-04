@@ -86,12 +86,4 @@ jobs:
 
       - name: Tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: uv run pytest --ignore=tests/test_eval_classify.py
-
-      # Specs for the metric functions in eval_classify.py, which are a
-      # maintainer exercise (see CLAUDE.md). This step is expected to fail
-      # until those functions are implemented; it runs separately so that
-      # failure is never confused with a regression in the tests above.
-      - name: Exercise specs (eval_classify.py metrics)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: uv run pytest tests/test_eval_classify.py
+        run: uv run pytest

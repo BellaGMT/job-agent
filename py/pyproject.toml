@@ -44,7 +44,5 @@ target-version = "py311"
 select = ["E", "W", "F", "I", "N", "B", "UP", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-# Maintainer exercise scaffolding (see CLAUDE.md): imports provided for the
-# functions still to be written, and the spec file's short `R` result helper.
-"eval_classify.py" = ["F401"]
+# The eval spec file's short `R` result helper keeps its many cases readable.
 "tests/test_eval_classify.py" = ["N802"]

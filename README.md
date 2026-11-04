@@ -15,8 +15,9 @@ Working today:
 - Extract clean text from MIME email (plain/HTML selection, attachments skipped, entities decoded).
 - Build an unbiased evaluation set with a labeling CLI: stratified sampling, targeted additions for rare cases, label fixes and coverage stats.
 - Classify each email and extract its fields (company, role, requisition id, deadline, requested actions) with one schema-constrained model call, cached on disk.
+- Evaluate the classifier against the labeled set: accuracy, per-category precision and recall, confusions, recruiting recall, and accuracy per sampling bucket.
 
-In progress: classifier evaluation metrics, then linking emails to applications, a chat agent, approval-gated drafting and a daily digest (see [Status](#status)).
+Next: tuning the classifier prompt against the eval, then linking emails to applications, a chat agent, approval-gated drafting and a daily digest (see [Status](#status)).
 
 ## Design principles
 
@@ -62,7 +63,8 @@ Decisions worth knowing before changing code:
 - [x] MIME body extraction, unit tested
 - [x] Labeling tool with stratified sampling and targeted additions
 - [x] Structured-output classification and extraction with a disk cache
-- [ ] Classifier evaluation metrics (in progress)
+- [x] Classifier evaluation metrics
+- [ ] Classifier prompt tuned against the eval set (in progress)
 - [ ] Linking emails to the right application, deduplicated across inboxes
 - [ ] Chat agent with traced tool calls and a question-level eval suite
 - [ ] Drafting, calendar availability, approval-gated sending
@@ -150,8 +152,6 @@ TypeScript is linted and formatted by [Biome](https://biomejs.dev); Python by [R
 
 Every check runs even if an earlier one fails, so a single run reports all problems; Biome and Ruff findings appear as inline annotations on the diff. CI uses no secrets: Gmail and Claude are replaced by fakes, and databases are temporary. Actions are pinned to commit SHAs and the token is read-only.
 
-The **"Exercise specs"** step runs the tests for the metric functions in `py/eval_classify.py`, which are intentionally left for the maintainer to implement. It fails until they are written, and is kept as its own step so it is never mistaken for a regression.
-
 ### Contributing
 
 - Read `CLAUDE.md`: it holds the engineering standards and project conventions, for people and AI assistants alike.
@@ -193,7 +193,7 @@ py/
   explore.py          sender-domain report
   data.py             typed eval-set loader
   classify.py         classification and extraction
-  eval_classify.py    evaluation report (metric functions: exercise)
+  eval_classify.py    evaluation metrics and report
   prompts/            classifier system prompt
   tests/
 .github/workflows/    CI
