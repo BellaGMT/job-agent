@@ -52,7 +52,10 @@ class CategoryScore:
 
 def accuracy(results: list[Result]) -> float:
     """Share of results where predicted == expected. 0.0 for an empty list."""
-    raise NotImplementedError
+    if not results:
+        return 0.0
+    else:
+        return sum(result.predicted == result.expected for result in results) / len(results)
 
 
 def per_category(results: list[Result]) -> dict[str, CategoryScore]:
@@ -62,7 +65,33 @@ def per_category(results: list[Result]) -> dict[str, CategoryScore]:
       a -> support 2, predicted 1, correct 1
       b -> support 1, predicted 2, correct 1
     """
-    raise NotImplementedError
+    scores : dict[str, CategoryScore] = {}
+    for result in results:
+        expected = result.expected
+        predicted = result.predicted
+        if expected not in scores:
+            scores[expected] = CategoryScore(support=1, predicted=0, correct=0)
+        else:
+            scores[expected] = CategoryScore(
+                support=scores[expected].support + 1,
+                predicted=scores[expected].predicted,
+                correct=scores[expected].correct,
+            )
+        if predicted not in scores:
+            scores[predicted] = CategoryScore(support=0, predicted=1, correct=0)
+        else:
+            scores[predicted] = CategoryScore(
+                support=scores[predicted].support,
+                predicted=scores[predicted].predicted + 1,
+                correct=scores[predicted].correct,
+            )
+        if expected == predicted:
+            scores[expected] = CategoryScore(
+                support=scores[expected].support,
+                predicted=scores[expected].predicted,
+                correct=scores[expected].correct + 1,
+            )
+    return scores
 
 
 def confusions(results: list[Result]) -> list[tuple[str, str, int]]:
@@ -71,7 +100,16 @@ def confusions(results: list[Result]) -> list[tuple[str, str, int]]:
     Sorted by count, highest first; ties sorted alphabetically by (expected, predicted).
     Correct predictions never appear.
     """
-    raise NotImplementedError
+    confusion_counts: dict[tuple[str, str], int] = {}
+    for result in results:
+        expected = result.expected
+        predicted = result.predicted
+        if expected != predicted:
+            confusion_counts[(expected, predicted)] = confusion_counts.get((expected, predicted), 0) + 1
+    return sorted(
+        [(expected, predicted, count) for (expected, predicted), count in confusion_counts.items()],
+        key=lambda x: (-x[2], x[0], x[1]),
+    )
 
 
 def recruiting_recall(results: list[Result]) -> tuple[int, int]:
@@ -83,7 +121,16 @@ def recruiting_recall(results: list[Result]) -> tuple[int, int]:
     email classified as noise is invisible to the agent, while a wrong
     recruiting category is still seen and can be fixed.
     """
-    raise NotImplementedError
+    caught = 0
+    total = 0
+    for result in results:
+        expected = result.expected
+        predicted = result.predicted
+        if expected not in NO_KEY:
+            total += 1
+            if predicted not in NO_KEY:
+                caught += 1
+    return caught, total
 
 
 def accuracy_by_bucket(results: list[Result]) -> dict[str, float]:
@@ -92,7 +139,14 @@ def accuracy_by_bucket(results: list[Result]) -> dict[str, float]:
     Targeted emails were hand-picked hard cases, so they're reported apart
     from the sampled ones (keyword + random) instead of blended in.
     """
-    raise NotImplementedError
+    accuracy_by_bucket: dict[str, float] = {}
+    for bucket in set(result.bucket for result in results):
+        bucket_results = [result for result in results if result.bucket == bucket]
+        if not bucket_results:
+            accuracy_by_bucket[bucket] = 0.0
+        else:
+            accuracy_by_bucket[bucket] = sum(result.predicted == result.expected for result in bucket_results) / len(bucket_results)
+    return accuracy_by_bucket
 
 
 # ------------------------------------------------------------------ wiring
