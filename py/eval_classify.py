@@ -167,8 +167,9 @@ def print_report(results: list[Result], errors: list[dict[str, str]]) -> dict[st
         print(f"  {mistake_count:3}  {expected} -> {predicted}")
 
     print("\nEvery error (read these; they tell you what to change in the prompt):")
+    print("  Read one in full with: uv run python label.py show <id>")
     for error in errors:
-        print(f"  [{error['bucket']}] {error['subject'][:60]!r}")
+        print(f"  [{error['bucket']}] {error['subject'][:60]!r}  id={error['gmail_id']}")
         print(f"      expected {error['expected']}, got {error['predicted']}: {error['reason']}")
     return summary
 

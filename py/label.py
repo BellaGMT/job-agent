@@ -5,6 +5,7 @@
     uv run python label.py stats           # what your eval set covers
     uv run python label.py search offer    # find rare cases and add them to the queue
     uv run python label.py fix SpaceX      # re-label an email already labeled
+    uv run python label.py show <gmail_id> # read one email in full, with its label
     uv run python label.py rename-key "Old | Key" "New | Key"
 
 Stdlib only. Reads the same SQLite file the TypeScript sync writes.
@@ -230,15 +231,17 @@ def next_unlabeled(connection: sqlite3.Connection, skipped_positions: set[int]) 
     return None
 
 
-def show(email: sqlite3.Row, header: str) -> None:
+def show(email: sqlite3.Row, header: str, body_limit: int | None = BODY_PREVIEW_CHARS) -> None:
+    """Print one email. `body_limit=None` prints the whole body."""
     received = datetime.fromtimestamp(email["internal_date"] / 1000).strftime("%Y-%m-%d %H:%M")
     body = (email["body_text"] or "").strip()
+    truncated = body_limit is not None and len(body) > body_limit
     print("\n" + "=" * 78)
     print(f"{header}  {email['account']}  {received}")
     print(f"From:    {email['from_addr']}")
     print(f"Subject: {email['subject']}")
     print("-" * 78)
-    print(body[:BODY_PREVIEW_CHARS] + ("\n  ... (m for more)" if len(body) > BODY_PREVIEW_CHARS else ""))
+    print(body[:body_limit] + ("\n  ... (m for more)" if truncated else ""))
     print("-" * 78)
 
 
@@ -405,6 +408,35 @@ def cmd_rename_key(connection: sqlite3.Connection, old_key: str, new_key: str) -
     print(f"Renamed {usage_count} label(s): '{old_key}' -> '{normalized}'{merged_note}")
 
 
+# ---------------------------------------------------------------- show
+
+
+def find_emails(connection: sqlite3.Connection, gmail_id: str) -> list[sqlite3.Row]:
+    """Every stored copy of a Gmail id (one per inbox it was synced from), with its label if any."""
+    return connection.execute(
+        """SELECT m.*, l.category, l.application_key, l.notes FROM messages m
+           LEFT JOIN labels l USING (account, gmail_id)
+           WHERE m.gmail_id = ? ORDER BY m.account""",
+        (gmail_id,),
+    ).fetchall()
+
+
+def describe_label(email: sqlite3.Row) -> str:
+    if not email["category"]:
+        return "Not labeled"
+    parts = [f"Labeled {email['category']}", email["application_key"], email["notes"] and f"note: {email['notes']}"]
+    return " | ".join(part for part in parts if part)
+
+
+def cmd_show(connection: sqlite3.Connection, gmail_id: str) -> None:
+    """Print an email in full: to read what the classifier saw when it got one wrong."""
+    emails = find_emails(connection, gmail_id.strip())
+    if not emails:
+        sys.exit(f"No email with id '{gmail_id}'. Copy the id from the eval report or the saved run file.")
+    for email in emails:
+        show(email, describe_label(email), body_limit=None)
+
+
 # ---------------------------------------------------------------- stats
 
 
@@ -472,6 +504,8 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--limit", type=int, default=30)
     fix = commands.add_parser("fix", help="re-label an already-labeled email")
     fix.add_argument("text")
+    show_email = commands.add_parser("show", help="print one email in full by its Gmail id")
+    show_email.add_argument("gmail_id")
     rename = commands.add_parser("rename-key", help="rename an application key everywhere")
     rename.add_argument("old")
     rename.add_argument("new")
@@ -492,6 +526,8 @@ def main() -> None:
             cmd_search(connection, args.text, args.limit)
         elif args.command == "fix":
             cmd_fix(connection, args.text)
+        elif args.command == "show":
+            cmd_show(connection, args.gmail_id)
         elif args.command == "rename-key":
             cmd_rename_key(connection, args.old, args.new)
         else:
