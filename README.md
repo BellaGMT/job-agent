@@ -123,6 +123,7 @@ uv run python label.py sample     # build the eval sample (once)
 uv run python label.py            # label it; resumable, q to quit
 uv run python label.py stats      # coverage report
 uv run python label.py search offer   # add rare cases to the queue
+uv run python label.py show <gmail_id>  # read one email in full (ids are in the eval report)
 uv run python eval_classify.py    # classify the eval set and report metrics
 ```
 

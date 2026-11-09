@@ -12,11 +12,15 @@ from label import (
     add_targeted,
     base_domain,
     choose_sample,
+    cmd_show,
+    describe_label,
     existing_keys,
+    find_emails,
     near_duplicate_keys,
     normalize_key,
     rename_key,
     sender_domain,
+    show,
 )
 from tests.conftest import add_label, add_message, queue
 
@@ -154,3 +158,44 @@ def test_queue_rejects_unknown_buckets(database: sqlite3.Connection) -> None:
     add_message(database, "a")
     with pytest.raises(sqlite3.IntegrityError):
         queue(database, "a", position=0, bucket="other")
+
+
+# --- show ---------------------------------------------------------------------
+
+
+def test_find_emails_returns_each_inbox_copy_with_its_label(database: sqlite3.Connection) -> None:
+    database.execute("INSERT INTO accounts (email) VALUES ('work@example.com')")
+    add_message(database, "shared", subject="Interview")
+    database.execute(
+        "INSERT INTO messages (account, gmail_id, thread_id, internal_date, subject) "
+        "VALUES ('work@example.com', 'shared', 't', 1, 'Interview (forwarded)')"
+    )
+    add_label(database, "shared", "interview_invite", "Stripe | SWE")
+
+    copies = find_emails(database, "shared")
+
+    assert [copy["account"] for copy in copies] == ["me@gmail.com", "work@example.com"]
+    assert describe_label(copies[0]) == "Labeled interview_invite | Stripe | SWE"
+    assert describe_label(copies[1]) == "Not labeled"
+    assert find_emails(database, "missing") == []
+
+
+def test_show_prints_the_whole_body_when_unlimited(
+    database: sqlite3.Connection, capsys: pytest.CaptureFixture[str]
+) -> None:
+    long_body = "word " * 1000 + "THE END"
+    add_message(database, "long", body=long_body)
+    email = find_emails(database, "long")[0]
+
+    show(email, "header", body_limit=None)
+    full = capsys.readouterr().out
+    show(email, "header")
+    preview = capsys.readouterr().out
+
+    assert "THE END" in full and "(m for more)" not in full
+    assert "THE END" not in preview and "(m for more)" in preview
+
+
+def test_show_command_rejects_unknown_ids(database: sqlite3.Connection) -> None:
+    with pytest.raises(SystemExit, match="No email with id 'nope'"):
+        cmd_show(database, "nope")
