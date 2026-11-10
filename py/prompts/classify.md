@@ -205,6 +205,7 @@ Do not use when:
 - The employer merely states that the application is still under review.
 - The company temporarily delays hiring without terminating the opportunity.
 - The candidate receives a neutral recruiting update with no negative final decision.
+- The email is a later reply about a rejection already sent, such as the candidate asking for feedback or the recruiter answering: use `recruiting_update` (see Section 4.3).
 
 **Example**
 
@@ -332,6 +333,7 @@ Examples:
 - The mailbox owner confirms availability for an already agreed interview → `interview_scheduling`.
 - The mailbox owner provides requested work authorization details → `info_request`.
 - The mailbox owner follows up about the status of an active application → `recruiting_update`.
+- The mailbox owner replies to a rejection or an offer to thank the recruiter, ask for feedback, or ask a question → `recruiting_update`.
 
 Do not classify an email as `recruiter_outreach` merely because it mentions an opportunity. That category requires genuine recruiting outreach directed toward the candidate.
 
@@ -364,6 +366,16 @@ Prioritize the newest substantive message when determining the email's purpose.
 Use earlier conversation text to understand context, such as whether an interview was previously agreed upon.
 
 Do not automatically classify an email based on an old offer, rejection, or interview invitation appearing only in quoted text.
+
+A decision category (`offer`, `rejection`) belongs to the message that announces the decision. Later replies in the same thread that discuss a decision already made (thanking, asking for feedback, giving or declining feedback, acknowledging) are `recruiting_update`, even when they quote or mention the decision. Use the decision category again only if the newest message itself makes a new decision or changes one, such as a revised offer or a reversed rejection.
+
+**Contrast**
+
+Newest message: "Unfortunately, the team has decided to move forward with other candidates." → `rejection`
+
+Newest message: "Thank you for letting me know. Could you share any feedback on my coding interview?" (the rejection appears only in the quoted text) → `recruiting_update`
+
+Newest message: "I'm not able to share detailed feedback, but I'd encourage you to apply to other roles." (replying in the same thread) → `recruiting_update`
 
 If a forwarded message contains a genuine hiring communication, consider the actual purpose and intended recipient rather than relying on isolated keywords.
 
