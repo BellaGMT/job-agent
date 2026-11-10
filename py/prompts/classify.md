@@ -78,19 +78,24 @@ Category: `recruiter_outreach`
 
 ### `assessment_invite`
 
-An invitation or instruction to complete a hiring assessment as part of the recruiting process.
+A hiring assessment the candidate still has to take.
 
 Assessments may include coding challenges, technical tests, take-home assignments, aptitude tests, or other screening exercises.
+
+Ask: is there an assessment the candidate has not completed yet? If yes, use this category. If it is already done, classify what the email says happened next.
 
 Use when:
 - The candidate receives an assessment invitation.
 - The email provides an assessment link, instructions, or deadline.
 - The candidate receives a reminder to complete an outstanding assessment.
+- The deadline of an outstanding assessment is extended or changed.
 
 Do not use when:
 - The message merely confirms receipt of an application.
 - The email invites the candidate to a live interview rather than an assessment.
 - The message is unrelated to hiring.
+- The email confirms the candidate completed or submitted an assessment, with no decision: use `recruiting_update`.
+- The email gives the result of a completed assessment: classify by the outcome, such as `rejection` ("we won't be moving forward") or `interview_invite` ("you passed; we'd like to interview you").
 
 **Example**
 
@@ -99,6 +104,12 @@ Subject: Complete your technical assessment
 "Thank you for your interest in Meridian Labs. Please complete the online coding assessment by November 18 to continue with your application."
 
 Category: `assessment_invite`
+
+**Contrast**
+
+"Thank you for completing the coding assessment. Our team will review your results." → `recruiting_update`
+
+"After reviewing your assessment results, we will not be moving forward with your application." → `rejection`
 
 ### `interview_invite`
 
@@ -236,6 +247,7 @@ Use when:
 - The company explains that the candidate remains under consideration.
 - The hiring team provides general progress updates.
 - An applicant receives a recruiting-process update that is not an invitation, assessment, rejection, or offer.
+- The company confirms that the candidate completed or submitted an assessment, without a decision.
 
 Do not use when:
 - The message only confirms application receipt.
