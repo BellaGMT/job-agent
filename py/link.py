@@ -46,6 +46,23 @@ ATS_DOMAINS = (
     "indeed.com",
     "joinhandshake.com",
 )
+
+# A comprehensive Python list of global corporate and business suffixes
+COMPANY_SUFFIXES = (
+    # North America
+    "abc", "co", "corp", "corporation", "com", "inc", "lc", "llc", "llp", "lp", "ltd", "pa", "pc", "ulc",
+    
+    # United Kingdom & Commonwealth
+    "cic", "govt", "ltd", "nl", "pty", "plc", "pte",
+    
+    # Europe (Continental)
+    "ab", "a/s", "ag", "aps", "asa", "as", "bv.",  "eurl", "gmbh", "kga a", "nv",
+    "oy", "oyj", "sa", "sarl", "srl", "spa",
+    
+    # Asia-Pacific
+   "gk.", "hk.", "kk", "yk"
+)
+
 _ADDRESS = re.compile(r"<([^<>]+)>")
 
 
@@ -119,7 +136,11 @@ def normalize_company(name: str | None) -> str | None:
 
     "Tesla, Inc." and "TESLA" both become "tesla". See the spec for the rules.
     """
-    raise NotImplementedError("Exercise: implement to pass tests/test_link_exercise.py")
+    name = re.split(r'[\s.,]+', name.lower().strip(" .,")) if name else None
+    name = [word for word in name if word] if name else None
+    while name and len(name) > 1 and name[-1] in COMPANY_SUFFIXES:
+        name.pop()
+    return " ".join(name) if name else None
 
 
 def normalize_role(title: str | None) -> str | None:
@@ -127,7 +148,19 @@ def normalize_role(title: str | None) -> str | None:
 
     "Sr. Software Engineer (ID: 123)" becomes "senior software engineer".
     """
-    raise NotImplementedError("Exercise: implement to pass tests/test_link_exercise.py")
+    if not title:
+        return None
+    pattern = r"\([^)]*\)|\[[^\]]*\]|\{[^}]*\}"
+    title = re.sub(pattern, '', title.lower().strip(" .,"))
+    title = re.sub(r"[^a-zA-Z0-9\s]", " ", title)
+    title = re.sub(r"\bSr\b", "senior", title, flags=re.IGNORECASE)
+    title = re.sub(r"\bJr\b", "junior", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+", " ", title).strip()
+    #title = re.split(r'[\s.,]+', re.sub(pattern, '', title.lower().strip(" .,"))) if title else None
+    # title = [word for word in title if word] if title else None
+    # while title and len(title) > 1 and title[-1] in ROLE_SUFFIXES:
+    #     title.pop()
+    return title if title else None
 
 
 def link(candidates: Sequence[Candidate]) -> list[int]:
