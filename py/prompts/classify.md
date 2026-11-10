@@ -63,12 +63,13 @@ Use when:
 - A hiring manager contacts the candidate about their background.
 - A recruiter asks whether the candidate is open to discussing a role.
 - A personal recruiting message is sent before a formal application or hiring process.
-- A platform notifies the candidate that a recruiter or job-placement agent messaged them (e.g. LinkedIn "X just messaged you"), even when the message text isn't included. Judge by the sender's headline or title: recruiter, talent acquisition, staffing, or helping candidates find jobs.
+- A platform notifies the candidate that a recruiter or job-placement agent messaged them (e.g. LinkedIn "X just messaged you"), even when the message text isn't included. Use this only when the sender's headline or title explicitly says recruiting: recruiter, talent acquisition, sourcer, staffing, or helping candidates find jobs.
 
 Do not use when:
 - The message is an automated collection of job listings.
 - The recruiter is inviting the candidate to an actual interview.
 - The message primarily concerns an existing interview, assessment, offer, or rejection.
+- A platform notifies the candidate of a message from someone whose title is not a recruiting role (engineer, product manager, team lead, founder), and the message text isn't included: use `not_recruiting`. Colleagues and contacts message for many reasons.
 
 **Example**
 
@@ -342,6 +343,7 @@ Examples:
 - The mailbox owner accepts an interview or recruiter-call invitation ("Thursday works", "Happy to chat, I'm free Wednesday") → `interview_scheduling`.
 - The mailbox owner provides requested work authorization details → `info_request`.
 - The mailbox owner follows up about the status of an active application → `recruiting_update`.
+- The mailbox owner writes to a recruiter or company to ask about openings or express interest in working there (a cold email) → `recruiting_update`. It starts recruiting activity worth tracking, but it is not `recruiter_outreach`, which only covers contact initiated by a recruiter.
 - The mailbox owner replies to a rejection or an offer to thank the recruiter, ask for feedback, or ask a question → `recruiting_update`.
 
 Do not classify an email as `recruiter_outreach` merely because it mentions an opportunity. That category requires genuine recruiting outreach directed toward the candidate.
