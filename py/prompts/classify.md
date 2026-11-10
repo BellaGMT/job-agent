@@ -63,6 +63,7 @@ Use when:
 - A hiring manager contacts the candidate about their background.
 - A recruiter asks whether the candidate is open to discussing a role.
 - A personal recruiting message is sent before a formal application or hiring process.
+- A company tells the candidate that someone referred them for a specific role and invites them to apply, even as an automated email. The referral makes it about the candidate personally. (If the email says the candidate has already applied, use `recruiting_update`.)
 - A platform notifies the candidate that a recruiter or job-placement agent messaged them (e.g. LinkedIn "X just messaged you"), even when the message text isn't included. Use this only when the sender's headline or title explicitly says recruiting: recruiter, talent acquisition, sourcer, staffing, or helping candidates find jobs.
 
 Do not use when:
@@ -286,6 +287,7 @@ Use when:
 
 Do not use when:
 - A person directly contacts the candidate about a specific opportunity.
+- The email exists because someone referred the candidate for the role: use `recruiter_outreach`.
 - The message concerns a concrete application already in progress.
 - The email invites the candidate to an interview or assessment.
 - The email lists no specific openings: job-market newsletters and statistics, career tips, premium-membership or product promotions, and "explore jobs" buttons without listed roles are `not_recruiting`.
