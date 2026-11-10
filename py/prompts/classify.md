@@ -252,7 +252,9 @@ Category: `recruiting_update`
 
 ### `job_alert`
 
-An automated job recommendation, job listing notification, or employment opportunity digest that does not constitute personalized recruiting outreach.
+An automated email listing specific job openings (a role at a company) that does not constitute personalized recruiting outreach.
+
+The email must contain at least one specific opening. The roles do not need to match the mailbox owner's field: a broadcast of tutoring or nursing openings is still a job alert.
 
 Use when:
 - A job board sends recommended job listings.
@@ -264,14 +266,23 @@ Do not use when:
 - A person directly contacts the candidate about a specific opportunity.
 - The message concerns a concrete application already in progress.
 - The email invites the candidate to an interview or assessment.
+- The email lists no specific openings: job-market newsletters and statistics, career tips, premium-membership or product promotions, and "explore jobs" buttons without listed roles are `not_recruiting`.
 
 **Example**
 
 Subject: New engineering jobs matching your preferences
 
-"Five new software engineering positions were posted this week. Browse the latest opportunities selected for your saved job-search preferences."
+"New jobs for you: Backend Engineer at Northstar Systems (Remote), Platform Engineer at Cedar Computing (Seattle, WA), Software Engineer II at Meridian Labs. View all matching jobs."
 
 Category: `job_alert`
+
+**Contrast**
+
+Subject: Your weekly engineering job market report
+
+"There are 7,000+ engineering roles in your area, down 4% this month. Companies hiring the most: Northstar Systems, Cedar Computing. Explore jobs."
+
+Category: `not_recruiting` (market statistics and company names, but no specific opening)
 
 ### `not_recruiting`
 
@@ -281,6 +292,7 @@ Use when:
 - The email concerns shopping, entertainment, personal conversations, or ordinary transactions.
 - The message is an unrelated newsletter or advertisement.
 - The email discusses engineering or careers generally without being a recruiting communication to the mailbox owner.
+- The email is a job-market newsletter or promotion (hiring trends, companies with the most openings, premium features) that lists no specific openings.
 - The message contains recruiting-related vocabulary but its actual purpose is unrelated to the candidate's hiring process.
 
 **Example**
