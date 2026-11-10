@@ -465,7 +465,7 @@ def cmd_rename_key(connection: sqlite3.Connection, old_key: str, new_key: str) -
 
 
 def find_emails(connection: sqlite3.Connection, gmail_id: str) -> list[sqlite3.Row]:
-    """Every stored copy of a Gmail id (one per inbox it was synced from), with its label if any."""
+    """Every stored copy of a Gmail id (one per inbox it was synced from), with its label if any."""  
     return connection.execute(
         """SELECT m.*, l.category, l.application_key, l.notes FROM messages m
            LEFT JOIN labels l USING (account, gmail_id)
