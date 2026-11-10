@@ -52,15 +52,20 @@ def _email(row: sqlite3.Row) -> Email:
     )
 
 
-def load_eval_set(db_path: Path | str = DB_PATH) -> list[LabeledEmail]:
-    """Every labeled email that is in the label queue, oldest first, with its earlier thread messages."""
+def load_eval_set(db_path: Path | str = DB_PATH, from_position: int = 0) -> list[LabeledEmail]:
+    """Every labeled email in the label queue at `from_position` or later, oldest first, with its thread.
+
+    A `from_position` above 0 selects a batch queued later, e.g. a held-out set.
+    """
     with closing(connect(db_path)) as connection:
         rows = connection.execute(
             """SELECT m.*, q.bucket, l.category, l.application_key
                FROM labels l
                JOIN messages m USING (account, gmail_id)
                JOIN label_queue q USING (account, gmail_id)
-               ORDER BY m.internal_date"""
+               WHERE q.position >= ?
+               ORDER BY m.internal_date""",
+            (from_position,),
         ).fetchall()
         threads = _earlier_thread_messages(connection)
     return [

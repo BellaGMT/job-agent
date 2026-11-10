@@ -1,6 +1,7 @@
 """Hand-label emails. These labels are the ground truth every eval measures against.
 
     uv run python label.py sample          # pick ~100 emails to label (once)
+    uv run python label.py sample --add --n 40   # queue a fresh batch the prompt was never tuned on
     uv run python label.py                 # label them (resumable; q to quit)
     uv run python label.py stats           # what your eval set covers
     uv run python label.py search offer    # find rare cases and add them to the queue
@@ -113,9 +114,17 @@ def choose_sample(
     return picked
 
 
-def cmd_sample(connection: sqlite3.Connection, sample_size: int, seed: int, keyword_share: float, force: bool) -> None:
+def cmd_sample(
+    connection: sqlite3.Connection, sample_size: int, seed: int, keyword_share: float, force: bool, add: bool
+) -> None:
+    if add:
+        cmd_add_sample(connection, sample_size, seed, keyword_share)
+        return
     if queued_count(connection) and not force:
-        sys.exit("A sample already exists. Re-sampling changes your eval set; use --force if you mean it.")
+        sys.exit(
+            "A sample already exists. Re-sampling replaces your eval set; use --force if you mean it, "
+            "or --add to queue a fresh batch next to it."
+        )
     messages = connection.execute(
         "SELECT account, gmail_id, from_addr, subject, substr(body_text, 1, 3000) AS body "
         "FROM messages ORDER BY account, gmail_id"
@@ -141,8 +150,52 @@ def cmd_sample(connection: sqlite3.Connection, sample_size: int, seed: int, keyw
     )
 
 
+def append_sample(
+    connection: sqlite3.Connection, sample_size: int, seed: int, keyword_share: float
+) -> tuple[int, Counter[str]]:
+    """Queue a new stratified batch from emails not already queued, after the existing queue.
+
+    A batch added after the prompt was tuned is a held-out set: the prompt has
+    never been adjusted to fit it, so its score estimates accuracy on new mail.
+    Returns the batch's first queue position and its count per bucket.
+    """
+    unqueued = connection.execute(
+        "SELECT m.account, m.gmail_id, m.from_addr, m.subject, substr(m.body_text, 1, 3000) AS body "
+        "FROM messages m LEFT JOIN label_queue q USING (account, gmail_id) "
+        "WHERE q.gmail_id IS NULL ORDER BY m.account, m.gmail_id"
+    ).fetchall()
+    picked = choose_sample(unqueued, sample_size, seed, keyword_share)
+    first_position = next_position(connection)
+    connection.executemany(
+        "INSERT INTO label_queue (position, account, gmail_id, bucket) VALUES (?, ?, ?, ?)",
+        [
+            (first_position + offset, message["account"], message["gmail_id"], bucket)
+            for offset, (message, bucket) in enumerate(picked)
+        ],
+    )
+    connection.commit()
+    return first_position, Counter(bucket for _, bucket in picked)
+
+
+def cmd_add_sample(connection: sqlite3.Connection, sample_size: int, seed: int, keyword_share: float) -> None:
+    first_position, bucket_counts = append_sample(connection, sample_size, seed, keyword_share)
+    added = sum(bucket_counts.values())
+    if not added:
+        sys.exit("Every stored email is already queued. Run `npm run ingest` to fetch new mail.")
+    print(
+        f"Queued {added} new emails ({bucket_counts['keyword']} keyword matches, {bucket_counts['random']} random) "
+        f"from queue position {first_position}.\n"
+        f"Label them:          uv run python label.py\n"
+        f"Evaluate only them:  uv run python eval_classify.py --from-position {first_position}"
+    )
+
+
 def queued_count(connection: sqlite3.Connection) -> int:
     return int(connection.execute("SELECT COUNT(*) FROM label_queue").fetchone()[0])
+
+
+def next_position(connection: sqlite3.Connection) -> int:
+    return int(connection.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM label_queue").fetchone()[0])
 
 
 # ---------------------------------------------------------------- label
@@ -348,11 +401,11 @@ def cmd_search(connection: sqlite3.Connection, search_text: str, limit: int) -> 
 
 def add_targeted(connection: sqlite3.Connection, emails: Sequence[sqlite3.Row]) -> int:
     """Append emails to the end of the queue; already-queued ones are ignored. Returns how many were added."""
-    next_position = int(connection.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM label_queue").fetchone()[0])
+    first_position = next_position(connection)
     before = queued_count(connection)
     connection.executemany(
         "INSERT OR IGNORE INTO label_queue (position, account, gmail_id, bucket) VALUES (?, ?, ?, 'targeted')",
-        [(next_position + offset, email["account"], email["gmail_id"]) for offset, email in enumerate(emails)],
+        [(first_position + offset, email["account"], email["gmail_id"]) for offset, email in enumerate(emails)],
     )
     connection.commit()
     return queued_count(connection) - before
@@ -496,7 +549,8 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--n", dest="sample_size", type=int, default=100)
     sample.add_argument("--seed", type=int, default=7)
     sample.add_argument("--keyword-share", type=float, default=0.7)
-    sample.add_argument("--force", action="store_true")
+    sample.add_argument("--force", action="store_true", help="replace the existing sample")
+    sample.add_argument("--add", action="store_true", help="queue a new batch after the existing sample")
     commands.add_parser("label", help="label queued emails (default)")
     commands.add_parser("stats", help="coverage of your labels")
     search = commands.add_parser("search", help="find emails by text and add them to the queue")
@@ -519,7 +573,7 @@ def main() -> None:
     connection = connect()
     try:
         if args.command == "sample":
-            cmd_sample(connection, args.sample_size, args.seed, args.keyword_share, args.force)
+            cmd_sample(connection, args.sample_size, args.seed, args.keyword_share, args.force, args.add)
         elif args.command == "stats":
             cmd_stats(connection)
         elif args.command == "search":

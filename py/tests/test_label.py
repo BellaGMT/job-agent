@@ -10,6 +10,7 @@ import pytest
 from label import (
     MAX_PER_SENDER_DOMAIN,
     add_targeted,
+    append_sample,
     base_domain,
     choose_sample,
     cmd_show,
@@ -199,3 +200,31 @@ def test_show_prints_the_whole_body_when_unlimited(
 def test_show_command_rejects_unknown_ids(database: sqlite3.Connection) -> None:
     with pytest.raises(SystemExit, match="No email with id 'nope'"):
         cmd_show(database, "nope")
+
+
+def test_append_sample_queues_only_new_emails_after_the_existing_queue(database: sqlite3.Connection) -> None:
+    for number in range(12):
+        add_message(database, f"m{number:02}", subject="Your application" if number % 2 else "Lunch?")
+    for position, gmail_id in enumerate(["m00", "m01", "m02"]):
+        queue(database, gmail_id, position)
+    queue(database, "m03", 9, bucket="targeted")  # a gap: new positions start after the highest one
+    database.commit()
+
+    first_position, bucket_counts = append_sample(database, 5, seed=1, keyword_share=0.6)
+
+    rows = database.execute("SELECT position, gmail_id, bucket FROM label_queue ORDER BY position").fetchall()
+    old, new = rows[:4], rows[4:]
+    assert [(row["position"], row["gmail_id"]) for row in old] == [(0, "m00"), (1, "m01"), (2, "m02"), (9, "m03")]
+    assert first_position == 10
+    assert [row["position"] for row in new] == list(range(10, 15))
+    assert not {row["gmail_id"] for row in new} & {"m00", "m01", "m02", "m03"}
+    assert sum(bucket_counts.values()) == 5
+    assert {row["bucket"] for row in new} <= {"keyword", "random"}
+
+
+def test_append_sample_with_nothing_left_adds_nothing(database: sqlite3.Connection) -> None:
+    add_message(database, "only")
+    queue(database, "only", 0)
+    database.commit()
+    assert append_sample(database, 5, seed=1, keyword_share=0.7) == (1, Counter())
+    assert database.execute("SELECT COUNT(*) FROM label_queue").fetchone()[0] == 1

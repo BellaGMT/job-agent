@@ -56,3 +56,15 @@ def test_attaches_earlier_messages_of_the_same_thread(database: sqlite3.Connecti
     assert [message.gmail_id for message in items["confirm"].email.thread] == ["invite", "accept"]
     assert items["confirm"].email.thread[0].subject == "Interview?"
     assert items["invite"].email.thread == ()  # first message of its thread
+
+
+def test_from_position_selects_a_later_batch(database: sqlite3.Connection, tmp_path: Path) -> None:
+    for position, gmail_id in enumerate(["tuned-1", "tuned-2", "held-out"]):
+        add_message(database, gmail_id)
+        queue(database, gmail_id, position)
+        add_label(database, gmail_id, "not_recruiting")
+    database.commit()
+
+    items = load_eval_set(tmp_path / "agent.db", from_position=2)
+
+    assert [item.email.gmail_id for item in items] == ["held-out"]

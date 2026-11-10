@@ -79,6 +79,8 @@ The eval set is about 140 emails from my own inboxes:
 - **Random** emails from everything the keyword filter rejected. They measure the filter's blind spots instead of inheriting them, and keep realistic negatives in the set.
 - **Targeted** hand-picked rare cases (scheduling, outreach, non-English confirmations), reported separately because they are not a random sample.
 
+The prompt is tuned by reading errors on this set, which makes its score optimistic. Batches queued after tuning (`sample --add`) serve as held-out sets: scored on their own, they estimate accuracy on mail the prompt was never fitted to.
+
 Each email gets one of 11 categories plus an application key (`Company | Role`), which distinguishes separate applications at the same company. The headline metric is **recruiting recall**: a recruiting email filed under the wrong recruiting category can be corrected later, but one filed as noise is invisible to the agent.
 
 ## Prerequisites
@@ -122,11 +124,13 @@ npm run ingest -- --refresh       # re-download stored messages too, e.g. after 
 
 cd py
 uv run python label.py sample     # build the eval sample (once)
+uv run python label.py sample --add --n 40   # queue a fresh held-out batch next to it
 uv run python label.py            # label it; resumable, q to quit
 uv run python label.py stats      # coverage report
 uv run python label.py search offer   # add rare cases to the queue
 uv run python label.py show <gmail_id>  # read one email in full (ids are in the eval report)
 uv run python eval_classify.py    # classify the eval set and report metrics
+uv run python eval_classify.py --from-position 139   # score only a batch queued later
 ```
 
 ## Development

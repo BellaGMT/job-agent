@@ -2,6 +2,7 @@
 
     uv run python eval_classify.py                  # run, print report, save the run
     uv run python eval_classify.py --model claude-sonnet-5-5
+    uv run python eval_classify.py --from-position 139   # only a batch queued later (held out)
 
 The metric functions marked TODO are yours to implement; `uv run pytest`
 tells you when they're right. Everything below them (loading, calling the
@@ -182,10 +183,18 @@ def main() -> None:
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--prompt", type=Path, default=DEFAULT_PROMPT)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument(
+        "--from-position",
+        type=int,
+        default=0,
+        help="only emails at this label-queue position or later (`label.py sample --add` prints it)",
+    )
     args = ap.parse_args()
 
     prompt = load_prompt(args.prompt)
-    items = load_eval_set()
+    items = load_eval_set(from_position=args.from_position)
+    if not items:
+        raise SystemExit(f"No labeled emails at queue position {args.from_position} or later. Label them first.")
     print(f"Classifying {len(items)} emails with {args.model} (cached results are reused)...")
     outputs = classify_many([item.email for item in items], prompt=prompt, model=args.model, workers=args.workers)
 
@@ -212,6 +221,7 @@ def main() -> None:
         "model": args.model,
         "prompt_file": str(args.prompt.name),
         "prompt_sha": hashlib.sha256(prompt.encode()).hexdigest()[:12],
+        "from_position": args.from_position,
         "summary": summary,
         "results": [asdict(result) for result in results],
         "errors": errors,
