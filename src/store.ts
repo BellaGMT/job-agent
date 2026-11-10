@@ -5,6 +5,7 @@ import { isRecord, stringField } from "./guards.js";
 
 export class MessageStore {
   private readonly insertStatement: Database.Statement;
+  private readonly upsertStatement: Database.Statement;
 
   constructor(private readonly db: Database.Database) {
     // INSERT OR IGNORE makes inserting idempotent: a re-run after an interruption
@@ -16,6 +17,21 @@ export class MessageStore {
       VALUES
         (@account, @gmailId, @threadId, @rfcMessageId, @inReplyTo, @referencesIds,
          @internalDate, @from, @to, @cc, @subject, @snippet, @bodyText, @labelIds)`);
+    // Updates in place rather than INSERT OR REPLACE: REPLACE deletes the old row
+    // first, which the labels foreign key would reject (or, without it, orphan labels).
+    this.upsertStatement = db.prepare(`
+      INSERT INTO messages
+        (account, gmail_id, thread_id, rfc_message_id, in_reply_to, references_ids,
+         internal_date, from_addr, to_addr, cc_addr, subject, snippet, body_text, label_ids)
+      VALUES
+        (@account, @gmailId, @threadId, @rfcMessageId, @inReplyTo, @referencesIds,
+         @internalDate, @from, @to, @cc, @subject, @snippet, @bodyText, @labelIds)
+      ON CONFLICT (account, gmail_id) DO UPDATE SET
+        thread_id = excluded.thread_id, rfc_message_id = excluded.rfc_message_id,
+        in_reply_to = excluded.in_reply_to, references_ids = excluded.references_ids,
+        internal_date = excluded.internal_date, from_addr = excluded.from_addr, to_addr = excluded.to_addr,
+        cc_addr = excluded.cc_addr, subject = excluded.subject, snippet = excluded.snippet,
+        body_text = excluded.body_text, label_ids = excluded.label_ids, fetched_at = datetime('now')`);
   }
 
   ensureAccount(email: string): void {
@@ -29,6 +45,11 @@ export class MessageStore {
 
   insert(email: string, message: ParsedMessage): void {
     this.insertStatement.run({ account: email, ...message, labelIds: JSON.stringify(message.labelIds) });
+  }
+
+  /** Insert, or overwrite the parsed fields of a message already stored. */
+  upsert(email: string, message: ParsedMessage): void {
+    this.upsertStatement.run({ account: email, ...message, labelIds: JSON.stringify(message.labelIds) });
   }
 
   /** Record a completed full sync. Call only after every message is stored. */

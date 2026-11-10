@@ -101,7 +101,26 @@ export function htmlToText(html: string): string {
   );
 }
 
-const NAMED_ENTITIES: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  rsquo: "\u2019",
+  lsquo: "\u2018",
+  rdquo: "\u201d",
+  ldquo: "\u201c",
+  ndash: "\u2013",
+  mdash: "\u2014",
+  hellip: "\u2026",
+  bull: "\u2022",
+  middot: "\u00b7",
+  copy: "\u00a9",
+  reg: "\u00ae",
+  trade: "\u2122",
+};
 
 export function decodeEntities(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entityText, entity: string) => {
@@ -115,11 +134,19 @@ export function decodeEntities(text: string): string {
   });
 }
 
+// Marketing emails pad their preview text with invisible characters, and some
+// put the HTML entity names into their plain-text part literally (&shy; &zwnj;).
+const PADDING_ENTITIES = /&(?:shy|zwnj|zwj|#173|#x0*ad|#8203|#8204|#8205|#x0*200[bcd]|#847|#x0*34f|#65279|#x0*feff);/gi;
+const INVISIBLE_CHARS = /\u200b|\u200c|\u200d|\u00ad|\u034f|\ufeff/g; // zero-width spaces/joiners, soft hyphen, BOM
+// Any whitespace except a newline: spaces, tabs, NBSP, figure/thin/em spaces, ideographic space.
+const HORIZONTAL_WHITESPACE = /[^\S\n]+/g;
+
 function clean(text: string): string {
   return text
-    .replace(/\u200b|\u200c|\u200d|\u00ad|\u034f|\ufeff/g, "") // invisible preheader padding (zero-width spaces, soft hyphens, BOM)
-    .replace(/\r\n/g, "\n")
-    .replace(/[ \t ]+/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(PADDING_ENTITIES, "")
+    .replace(INVISIBLE_CHARS, "")
+    .replace(HORIZONTAL_WHITESPACE, " ")
     .replace(/ *\n */g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

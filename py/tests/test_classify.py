@@ -72,14 +72,26 @@ def test_changing_the_prompt_or_model_invalidates_the_cache(tmp_path):
 
 
 def test_cache_key_separates_fields():
-    e1 = make_email(gmail_id="bc")
-    e2 = make_email(gmail_id="c")
-    assert cache_key("m", "a", e1) != cache_key("m", "ab", e2)
+    email = make_email()
+    assert cache_key("m", "a", email) != cache_key("ma", "", email)  # field boundaries matter
+
+
+def test_cache_key_follows_content_not_ids():
+    original = make_email(gmail_id="g1", body="Thanks for applying.")
+    assert cache_key("m", "p", original) != cache_key("m", "p", make_email(gmail_id="g1", body="Thanks for applying!"))
+    assert cache_key("m", "p", original) == cache_key("m", "p", make_email(gmail_id="g2", body="Thanks for applying."))
+
+
+def test_an_email_whose_text_changed_is_reclassified(tmp_path):
+    client = FakeClient()
+    classify(make_email(body="padded &shy; &shy; text"), prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
+    classify(make_email(body="clean text"), prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
+    assert len(client.calls) == 2
 
 
 def test_classify_many_preserves_order(tmp_path):
     client = FakeClient()
-    emails = [make_email(gmail_id=f"g{number}") for number in range(10)]
+    emails = [make_email(gmail_id=f"g{number}", body=f"Email number {number}") for number in range(10)]
     out = classify_many(emails, prompt="P", model="m", parse=client.parse, cache_dir=tmp_path)
     assert len(out) == 10
     sent = [call["messages"][0]["content"] for call in client.calls]
@@ -120,7 +132,7 @@ def test_corrupt_cache_file_is_a_miss_and_gets_overwritten(tmp_path):
 def test_cache_writes_leave_no_temp_files(tmp_path):
     client = FakeClient()
     classify_many(
-        [make_email(gmail_id=f"g{number}") for number in range(5)],
+        [make_email(gmail_id=f"g{number}", body=f"Email number {number}") for number in range(5)],
         prompt="P",
         model="m",
         parse=client.parse,

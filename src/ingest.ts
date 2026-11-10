@@ -3,6 +3,7 @@
 //   npm run ingest -- --months 6   wider window
 //   npm run ingest -- --account you@gmail.com
 //   npm run ingest -- --rate 5     slower, if your project's quota is low
+//   npm run ingest -- --refresh    re-download stored messages too (after a parser fix)
 //
 // Resumable: messages already stored are skipped, so Ctrl-C and re-run is safe.
 import { google } from "googleapis";
@@ -32,6 +33,7 @@ async function main(args: IngestArgs): Promise<void> {
         const syncResult = await syncAccount(source, store, email, {
           months: args.months,
           ratePerSecond: args.ratePerSecond,
+          refresh: args.refresh,
           concurrency: CONCURRENCY,
           log: (line) => console.log(line),
         });

@@ -122,3 +122,25 @@ test("an empty window still completes and records the cursor", async () => {
   assert.deepEqual(result, { inWindow: 0, stored: 0, vanished: 0, malformed: [], completed: true });
   assert.equal(store.cursor(EMAIL), "h-100");
 });
+
+test("refresh re-downloads stored messages and updates them in place, keeping labels", async () => {
+  const db = openDb(":memory:");
+  const store = new MessageStore(db);
+  await syncAccount(fakeSource(["a", "b"]).source, store, EMAIL, OPTS);
+  db.prepare("INSERT INTO labels (account, gmail_id, category) VALUES (?, 'a', 'rejection')").run(EMAIL);
+
+  const refreshed = fakeSource(["a", "b"]);
+  const original = refreshed.source.getMessage;
+  refreshed.source.getMessage = async (id) => ({
+    ...(await original(id)),
+    payload: { mimeType: "text/plain", headers: [{ name: "Subject", value: `cleaner ${id}` }], body: { data: "" } },
+  });
+  const result = await syncAccount(refreshed.source, store, EMAIL, { ...OPTS, refresh: true });
+
+  assert.deepEqual(refreshed.fetched.sort(), ["a", "b"]); // stored ones fetched again
+  assert.equal(result.stored, 2);
+  const subjects = db.prepare("SELECT subject FROM messages ORDER BY gmail_id").pluck().all();
+  assert.deepEqual(subjects, ["cleaner a", "cleaner b"]);
+  const label = db.prepare("SELECT category FROM labels WHERE gmail_id = 'a'").pluck().get();
+  assert.equal(label, "rejection");
+});

@@ -5,9 +5,10 @@ no tools and no loop. The schema below is enforced by the API (structured
 outputs), so the result always parses; whether it's *right* is what the eval
 measures.
 
-Results are cached on disk, keyed by (model, prompt, email). Re-running the
-eval after changing nothing costs nothing; editing the prompt changes the key,
-so every email is re-classified with the new prompt.
+Results are cached on disk, keyed by the model, the prompt and the email text
+exactly as the model sees it. Re-running the eval after changing nothing costs
+nothing. Editing the prompt, re-syncing an email with a cleaner body, or
+changing how emails are formatted changes the key, so those are re-classified.
 """
 
 from __future__ import annotations
@@ -35,8 +36,6 @@ DEFAULT_PROMPT = Path(__file__).resolve().parent / "prompts" / "classify.md"
 CACHE_DIR = ROOT / "data" / "cache" / "classify"
 MAX_BODY_CHARS = 8_000  # long enough for any recruiting email; caps cost on newsletters
 REQUEST_TIMEOUT_S = 60.0
-# Bump when format_email changes, so cached results from the old format aren't reused.
-FORMAT_VERSION = "2"
 _EMAIL_TAG = re.compile(r"<\s*(/?)\s*email\b", re.IGNORECASE)
 MAX_RETRIES = 4  # the SDK retries 429/5xx/timeouts with exponential backoff and honors Retry-After
 
@@ -117,7 +116,9 @@ def _defang(text: str) -> str:
 
 def cache_key(model: str, prompt: str, email: Email) -> str:
     digest = hashlib.sha256()
-    for part in (model, prompt, email.account, email.gmail_id, str(MAX_BODY_CHARS), FORMAT_VERSION):
+    # Hash what the model actually receives: content, not ids, so a stored email
+    # whose text changes can never be served an answer computed from the old text.
+    for part in (model, prompt, format_email(email)):
         digest.update(part.encode())
         digest.update(b"\0")  # separator, so ("ab","c") and ("a","bc") differ
     return digest.hexdigest()[:32]

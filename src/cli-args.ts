@@ -4,32 +4,42 @@ import { assertSafeEmail } from "./google.js";
 export interface IngestArgs {
   months: number;
   ratePerSecond: number;
+  /** Re-download messages already stored and update them (e.g. after a parser improvement). */
+  refresh: boolean;
   account?: string;
 }
 
-export const INGEST_USAGE = "Usage: npm run ingest -- [--months N] [--rate N] [--account EMAIL]";
+export const INGEST_USAGE = "Usage: npm run ingest -- [--months N] [--rate N] [--account EMAIL] [--refresh]";
+
+const VALUE_FLAGS = ["months", "rate", "account"];
 
 const DEFAULTS = { months: 3, ratePerSecond: 10 };
 
 /** Throws with a usage message on unknown flags, missing values or out-of-range numbers. */
 export function parseIngestArgs(argv: string[]): IngestArgs {
   const values = new Map<string, string>();
-  for (let flagIndex = 0; flagIndex < argv.length; flagIndex += 2) {
+  let refresh = false;
+  for (let flagIndex = 0; flagIndex < argv.length; flagIndex++) {
     const flag = argv[flagIndex] ?? "";
-    const value = argv[flagIndex + 1];
+    if (flag === "--refresh") {
+      refresh = true;
+      continue;
+    }
     const name = flag.replace(/^--/, "");
-    if (!flag.startsWith("--") || !["months", "rate", "account"].includes(name) || value === undefined) {
+    const value = argv[flagIndex + 1];
+    if (!flag.startsWith("--") || !VALUE_FLAGS.includes(name) || value === undefined) {
       throw new Error(`Unexpected argument "${flag}". ${INGEST_USAGE}`);
     }
     values.set(name, value);
+    flagIndex++; // skip the value
   }
 
   const months = parseNumberInRange(values.get("months"), DEFAULTS.months, 1, 120, true, "--months");
   const ratePerSecond = parseNumberInRange(values.get("rate"), DEFAULTS.ratePerSecond, 0.5, 50, false, "--rate");
   const account = values.get("account");
   return account === undefined
-    ? { months, ratePerSecond }
-    : { months, ratePerSecond, account: assertSafeEmail(account) };
+    ? { months, ratePerSecond, refresh }
+    : { months, ratePerSecond, refresh, account: assertSafeEmail(account) };
 }
 
 function parseNumberInRange(

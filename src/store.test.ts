@@ -64,3 +64,23 @@ test("label ids are stored as JSON", () => {
   const stored: unknown = db.prepare("SELECT label_ids FROM messages").pluck().get();
   assert.equal(stored, '["INBOX"]');
 });
+
+test("upsert overwrites parsed fields of an existing message and inserts new ones", () => {
+  const db = openDb(":memory:");
+  const store = new MessageStore(db);
+  store.ensureAccount(EMAIL);
+  store.insert(EMAIL, parsedMessage("m1", "old subject"));
+  store.upsert(EMAIL, parsedMessage("m1", "new subject"));
+  store.upsert(EMAIL, parsedMessage("m2", "brand new"));
+  const subjects = db.prepare("SELECT subject FROM messages ORDER BY gmail_id").pluck().all();
+  assert.deepEqual(subjects, ["new subject", "brand new"]);
+});
+
+test("insert, unlike upsert, never overwrites", () => {
+  const db = openDb(":memory:");
+  const store = new MessageStore(db);
+  store.ensureAccount(EMAIL);
+  store.upsert(EMAIL, parsedMessage("m1", "first"));
+  store.insert(EMAIL, parsedMessage("m1", "second"));
+  assert.equal(db.prepare("SELECT subject FROM messages").pluck().get(), "first");
+});

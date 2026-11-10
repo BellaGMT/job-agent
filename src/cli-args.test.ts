@@ -3,14 +3,24 @@ import { test } from "node:test";
 import { parseIngestArgs } from "./cli-args.js";
 
 test("defaults", () => {
-  assert.deepEqual(parseIngestArgs([]), { months: 3, ratePerSecond: 10 });
+  assert.deepEqual(parseIngestArgs([]), { months: 3, ratePerSecond: 10, refresh: false });
 });
 
 test("all flags", () => {
   assert.deepEqual(parseIngestArgs(["--months", "6", "--rate", "2.5", "--account", "a.b@gmail.com"]), {
     months: 6,
     ratePerSecond: 2.5,
+    refresh: false,
     account: "a.b@gmail.com",
+  });
+});
+
+test("--refresh takes no value and can appear anywhere", () => {
+  assert.equal(parseIngestArgs(["--refresh"]).refresh, true);
+  assert.deepEqual(parseIngestArgs(["--months", "2", "--refresh", "--rate", "4"]), {
+    months: 2,
+    ratePerSecond: 4,
+    refresh: true,
   });
 });
 

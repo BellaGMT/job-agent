@@ -54,7 +54,7 @@ Decisions worth knowing before changing code:
 - **Sync correctness.** The Gmail history cursor is captured *before* listing (mail arriving mid-sync lands after it) and saved only *after* every message is stored. Messages deleted mid-sync are skipped; malformed ones are reported, not stored, and keep the cursor from advancing so the next run retries them. Inserts are idempotent, so interrupting and re-running is always safe.
 - **Rate limits.** Gmail reports quota exhaustion as 429 or as a 403 with a rate-limit reason. Requests are paced; a quota error pauses every worker for that inbox and halves the pace.
 - **Dependency injection at the network edge.** The sync takes a `MailSource` and the classifier takes its API call as a parameter, so tests run without network, credentials or cost.
-- **Classifier cache.** Results are keyed by model, prompt, email and message format; changing the prompt re-classifies everything, re-running unchanged costs nothing.
+- **Classifier cache.** Results are keyed by model, prompt and the email text exactly as the model sees it. Changing the prompt, or re-syncing an email whose cleaned text changed, re-classifies it; re-running unchanged costs nothing.
 
 ## Status
 
@@ -117,6 +117,7 @@ cd py && uv sync
 npm run auth                      # connect an inbox (once per inbox)
 npm run ingest                    # sync the last 3 months from every inbox
 npm run ingest -- --months 6 --rate 5 --account you@gmail.com
+npm run ingest -- --refresh       # re-download stored messages too, e.g. after a parser fix (labels are kept)
 
 cd py
 uv run python label.py sample     # build the eval sample (once)

@@ -92,3 +92,31 @@ test("rejects messages missing the fields every row depends on", () => {
 test("out-of-range numeric entities are left as written instead of throwing", () => {
   assert.equal(decodeEntities("&#99999999; &#X41;"), "&#99999999; A");
 });
+
+test("strips preview padding: literal entities, invisible characters and exotic spaces", () => {
+  const paddedPlainText = [
+    "Thanks for being a Premium member",
+    "   　", // figure and ideographic spaces only
+    "  ​‌",
+    "    &shy; &shy; &zwnj; &#173; &#8204; &#x200B;",
+    "&shy; &shy; &shy;",
+    "See the latest job trends for you",
+  ].join("\n");
+  const msg = parseMessage({
+    id: "g4",
+    threadId: "t4",
+    internalDate: "3",
+    payload: { mimeType: "text/plain", headers: [], body: { data: b64(Array(4).fill(paddedPlainText).join("\n")) } },
+  });
+  assert.ok(!msg.bodyText.includes("&shy;") && !msg.bodyText.includes("&zwnj;"), msg.bodyText);
+  assert.ok(!/[  　 ​‌]/.test(msg.bodyText));
+  assert.ok(!/\n{3,}/.test(msg.bodyText), "no runs of blank lines");
+  assert.match(msg.bodyText, /^Thanks for being a Premium member\n\nSee the latest job trends for you\n/);
+});
+
+test("decodes common typographic entities", () => {
+  assert.equal(
+    decodeEntities("It&rsquo;s here &mdash; 3&ndash;5 roles&hellip; &copy; &trade; &bull;"),
+    "It’s here — 3–5 roles… © ™ •",
+  );
+});

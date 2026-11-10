@@ -18,6 +18,8 @@ export interface MailSource {
 
 export interface SyncOptions {
   months: number;
+  /** Re-download stored messages too and overwrite their parsed fields; labels are kept. */
+  refresh?: boolean;
   ratePerSecond: number;
   concurrency: number;
   log: (line: string) => void;
@@ -61,8 +63,9 @@ export async function syncAccount(
   const cursor = await retry(() => source.historyId());
   const listedIds = await listAllIds(source, `newer_than:${options.months}m -in:chats`, retry);
   const existingMessageIds = store.storedIds(email);
-  const pendingMessageIds = listedIds.filter((id) => !existingMessageIds.has(id));
-  options.log(`${email}: ${listedIds.length} messages in window, ${pendingMessageIds.length} new`);
+  const pendingMessageIds = options.refresh ? listedIds : listedIds.filter((id) => !existingMessageIds.has(id));
+  const pendingLabel = options.refresh ? "to refresh" : "new";
+  options.log(`${email}: ${listedIds.length} messages in window, ${pendingMessageIds.length} ${pendingLabel}`);
 
   const result: SyncResult = { inWindow: listedIds.length, stored: 0, vanished: 0, malformed: [], completed: false };
   let handledCount = 0;
@@ -72,7 +75,8 @@ export async function syncAccount(
     const parsedMessage = message ? parseOrReport(id, message, result, options.log) : undefined;
     if (!message) result.vanished++;
     if (parsedMessage) {
-      store.insert(email, parsedMessage);
+      if (options.refresh) store.upsert(email, parsedMessage);
+      else store.insert(email, parsedMessage);
       result.stored++;
     }
     if (++handledCount % 100 === 0 || handledCount === pendingMessageIds.length) {
