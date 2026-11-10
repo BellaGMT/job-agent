@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
+from collections import defaultdict
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -21,6 +22,10 @@ class Email:
     subject: str
     sent_at: datetime
     body: str
+    # Earlier messages of the same Gmail thread in the same inbox, oldest first.
+    # Context for the classifier: a short reply ("Sounds good") or a calendar
+    # notice often means nothing without the messages before it.
+    thread: tuple[Email, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,7 +53,7 @@ def _email(row: sqlite3.Row) -> Email:
 
 
 def load_eval_set(db_path: Path | str = DB_PATH) -> list[LabeledEmail]:
-    """Every labeled email that is in the label queue, oldest first."""
+    """Every labeled email that is in the label queue, oldest first, with its earlier thread messages."""
     with closing(connect(db_path)) as connection:
         rows = connection.execute(
             """SELECT m.*, q.bucket, l.category, l.application_key
@@ -57,4 +62,35 @@ def load_eval_set(db_path: Path | str = DB_PATH) -> list[LabeledEmail]:
                JOIN label_queue q USING (account, gmail_id)
                ORDER BY m.internal_date"""
         ).fetchall()
-    return [LabeledEmail(_email(row), row["bucket"], row["category"], row["application_key"]) for row in rows]
+        threads = _earlier_thread_messages(connection)
+    return [
+        LabeledEmail(
+            replace(_email(row), thread=threads.get((row["account"], row["gmail_id"]), ())),
+            row["bucket"],
+            row["category"],
+            row["application_key"],
+        )
+        for row in rows
+    ]
+
+
+def _earlier_thread_messages(connection: sqlite3.Connection) -> dict[tuple[str, str], tuple[Email, ...]]:
+    """For each queued email, the messages before it in its thread, in one query (no per-email lookups).
+
+    Threads are scoped to one inbox: Gmail thread ids are per mailbox, and the
+    mailbox owner is part of what the classifier is told.
+    """
+    rows = connection.execute(
+        """SELECT q.account AS target_account, q.gmail_id AS target_id, earlier.*
+           FROM label_queue q
+           JOIN messages target USING (account, gmail_id)
+           JOIN messages earlier
+             ON earlier.account = target.account
+            AND earlier.thread_id = target.thread_id
+            AND (earlier.internal_date, earlier.gmail_id) < (target.internal_date, target.gmail_id)
+           ORDER BY earlier.internal_date, earlier.gmail_id"""
+    ).fetchall()
+    threads: dict[tuple[str, str], list[Email]] = defaultdict(list)
+    for row in rows:
+        threads[(row["target_account"], row["target_id"])].append(_email(row))
+    return {target: tuple(messages) for target, messages in threads.items()}

@@ -35,3 +35,24 @@ def test_loads_labeled_queued_emails_oldest_first(database: sqlite3.Connection, 
     assert (old.email.subject, old.email.from_addr, old.email.body) == ("", "", "")  # NULLs become empty strings
     assert old.email.sent_at == datetime.fromtimestamp(1_000_000_000, tz=UTC)
     assert (new.category, new.application_key, new.is_recruiting) == ("offer", "Stripe | SWE", True)
+
+
+def test_attaches_earlier_messages_of_the_same_thread(database: sqlite3.Connection, tmp_path: Path) -> None:
+    database.execute("INSERT INTO accounts (email) VALUES ('other@gmail.com')")
+    add_message(database, "invite", subject="Interview?", internal_date=1_000, thread_id="t1")
+    add_message(database, "accept", subject="Re: Interview?", internal_date=2_000, thread_id="t1")
+    add_message(database, "confirm", subject="Re: Interview?", internal_date=3_000, thread_id="t1")
+    add_message(database, "later", internal_date=4_000, thread_id="t1")  # after the target: not context
+    add_message(database, "elsewhere", internal_date=500, thread_id="t2")  # another thread
+    add_message(database, "other-inbox", internal_date=500, thread_id="t1", account="other@gmail.com")
+    queue(database, "confirm", 0)
+    queue(database, "invite", 1)
+    add_label(database, "confirm", "interview_scheduling", "Acme | SWE")
+    add_label(database, "invite", "interview_invite", "Acme | SWE")
+    database.commit()
+
+    items = {item.email.gmail_id: item for item in load_eval_set(tmp_path / "agent.db")}
+
+    assert [message.gmail_id for message in items["confirm"].email.thread] == ["invite", "accept"]
+    assert items["confirm"].email.thread[0].subject == "Interview?"
+    assert items["invite"].email.thread == ()  # first message of its thread

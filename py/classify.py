@@ -6,7 +6,7 @@ outputs), so the result always parses; whether it's *right* is what the eval
 measures.
 
 Results are cached on disk, keyed by the model, the prompt and the email text
-exactly as the model sees it. Re-running the eval after changing nothing costs
+exactly as the model sees it, earlier thread messages included. Re-running the eval after changing nothing costs
 nothing. Editing the prompt, re-syncing an email with a cleaner body, or
 changing how emails are formatted changes the key, so those are re-classified.
 """
@@ -35,8 +35,13 @@ DEFAULT_MODEL = os.environ.get("CLASSIFY_MODEL", "claude-haiku-5-5")
 DEFAULT_PROMPT = Path(__file__).resolve().parent / "prompts" / "classify.md"
 CACHE_DIR = ROOT / "data" / "cache" / "classify"
 MAX_BODY_CHARS = 8_000  # long enough for any recruiting email; caps cost on newsletters
+# Thread context: the latest few earlier messages, each cut short. A reply's own
+# text comes first and quoted history after, so the start of each body is the part
+# that matters; older history is usually quoted in the email being classified anyway.
+MAX_THREAD_MESSAGES = 5
+MAX_THREAD_BODY_CHARS = 1_500
 REQUEST_TIMEOUT_S = 60.0
-_EMAIL_TAG = re.compile(r"<\s*(/?)\s*email\b", re.IGNORECASE)
+_DATA_TAG = re.compile(r"<\s*(/?)\s*(email|thread)\b", re.IGNORECASE)
 MAX_RETRIES = 4  # the SDK retries 429/5xx/timeouts with exponential backoff and honors Retry-After
 
 Category = Literal[
@@ -89,29 +94,40 @@ def default_parse() -> ParseFn:
 
 
 def format_email(email: Email) -> str:
-    """The user message: metadata the model needs, then the body, inside tags.
+    """The user message: earlier thread messages if any, then the email to classify, inside tags.
 
     The tags mark where untrusted content starts and ends. Email text is data,
-    never instructions; the system prompt should say so. Any `<email>` or
-    `</email>` inside the content is defanged so a message can't close the
-    block early. This narrows prompt injection; it doesn't eliminate it, which
-    is why the classifier has no tools and its output is schema-constrained.
+    never instructions; the system prompt says so. Any `<email>` or `<thread>`
+    tag inside the content is defanged so a message can't close its block
+    early. This narrows prompt injection; it doesn't eliminate it, which is why
+    the classifier has no tools and its output is schema-constrained.
     """
+    message = (
+        f"<email>\nMailbox owner: {email.account}\n{_headers(email)}\n{_defang(email.body[:MAX_BODY_CHARS])}\n</email>"
+    )
+    earlier = email.thread[-MAX_THREAD_MESSAGES:]
+    if not earlier:
+        return message
+    context = "\n\n---\n\n".join(
+        f"{_headers(previous)}\n{_defang(previous.body[:MAX_THREAD_BODY_CHARS])}" for previous in earlier
+    )
+    omitted = len(email.thread) - len(earlier)
+    note = f" ({omitted} older not shown)" if omitted else ""
+    return f"<thread>\nEarlier messages in this conversation, oldest first{note}.\n\n{context}\n</thread>\n\n{message}"
+
+
+def _headers(email: Email) -> str:
     return (
-        f"<email>\n"
-        f"Mailbox owner: {email.account}\n"
         f"From: {_defang(email.from_addr)}\n"
         f"To: {_defang(email.to_addr)}\n"
         f"Date: {email.sent_at:%Y-%m-%d}\n"
-        f"Subject: {_defang(email.subject)}\n\n"
-        f"{_defang(email.body[:MAX_BODY_CHARS])}\n"
-        f"</email>"
+        f"Subject: {_defang(email.subject)}\n"
     )
 
 
 def _defang(text: str) -> str:
-    """'</email>' -> '[/email>' (case and spacing variants too), leaving the text readable."""
-    return _EMAIL_TAG.sub(r"[\1email", text)
+    """'</email>' -> '[/email>', '<thread>' -> '[thread>' (case and spacing variants too), text stays readable."""
+    return _DATA_TAG.sub(r"[\1\2", text)
 
 
 def cache_key(model: str, prompt: str, email: Email) -> str:

@@ -26,11 +26,13 @@ def add_message(
     subject: str | None = "Hello",
     body: str | None = "Just saying hi.",
     internal_date: int = 1_761_600_000_000,
+    thread_id: str | None = None,  # defaults to a thread of its own
+    account: str = "me@gmail.com",
 ) -> None:
     connection.execute(
         "INSERT INTO messages (account, gmail_id, thread_id, internal_date, from_addr, subject, body_text) "
-        "VALUES ('me@gmail.com', ?, ?, ?, ?, ?, ?)",
-        (gmail_id, f"t-{gmail_id}", internal_date, from_addr, subject, body),
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (account, gmail_id, thread_id or f"t-{gmail_id}", internal_date, from_addr, subject, body),
     )
 
 
