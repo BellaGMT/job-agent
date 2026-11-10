@@ -39,6 +39,7 @@ Use when:
 - The company confirms receipt of an application.
 - An applicant tracking system acknowledges a completed submission.
 - The email thanks the candidate for applying without communicating a new hiring decision.
+- An applicant tracking system sends a generic "thanks for your interest" email for a specific role, with links to check the application's status or finish an incomplete one, and no decision.
 
 Do not use when:
 - The application has been rejected.
@@ -62,6 +63,7 @@ Use when:
 - A hiring manager contacts the candidate about their background.
 - A recruiter asks whether the candidate is open to discussing a role.
 - A personal recruiting message is sent before a formal application or hiring process.
+- A platform notifies the candidate that a recruiter or job-placement agent messaged them (e.g. LinkedIn "X just messaged you"), even when the message text isn't included. Judge by the sender's headline or title: recruiter, talent acquisition, staffing, or helping candidates find jobs.
 
 Do not use when:
 - The message is an automated collection of job listings.
