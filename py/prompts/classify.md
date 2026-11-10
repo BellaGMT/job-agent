@@ -139,12 +139,16 @@ Category: `interview_invite`
 
 Communication primarily concerning the scheduling, confirmation, rescheduling, cancellation, or logistics of an interview that has already been accepted or arranged.
 
+Here "interview" includes any call or meeting with a recruiter or the hiring team about a job: a recruiter screen, an introductory call, a "sync" or "chat". An interview counts as accepted as soon as the candidate says yes: the candidate's acceptance itself, with or without availability, is `interview_scheduling`, and so is every later message about its time, place or link.
+
 Use when:
 - The candidate receives a confirmed interview date and time.
 - The recruiter sends a calendar invitation, meeting link, or location.
 - An existing interview needs to be rescheduled.
 - The candidate receives a reminder about an already arranged interview.
 - The candidate or recruiter coordinates logistics for an interview already agreed upon.
+- The candidate accepts an interview or call invitation, or replies with availability for it.
+- A recruiter confirms the time of a call the candidate agreed to.
 
 Do not use when:
 - The company is inviting the candidate to interview for the first time.
@@ -333,6 +337,7 @@ Classify an email sent by the mailbox owner according to its actual purpose.
 Examples:
 
 - The mailbox owner confirms availability for an already agreed interview → `interview_scheduling`.
+- The mailbox owner accepts an interview or recruiter-call invitation ("Thursday works", "Happy to chat, I'm free Wednesday") → `interview_scheduling`.
 - The mailbox owner provides requested work authorization details → `info_request`.
 - The mailbox owner follows up about the status of an active application → `recruiting_update`.
 - The mailbox owner replies to a rejection or an offer to thank the recruiter, ask for feedback, or ask a question → `recruiting_update`.
