@@ -86,4 +86,12 @@ jobs:
 
       - name: Tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: uv run pytest
+        run: uv run pytest --ignore=tests/test_link_exercise.py
+
+      # Specs for normalize_company, normalize_role and link in link.py, a
+      # maintainer exercise (see CLAUDE.md). This step is expected to fail
+      # until they are implemented; it runs separately so that failure is never
+      # confused with a regression in the tests above.
+      - name: Exercise specs (link.py)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: uv run pytest tests/test_link_exercise.py

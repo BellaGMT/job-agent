@@ -15,9 +15,10 @@ Working today:
 - Extract clean text from MIME email (plain/HTML selection, attachments skipped, entities decoded).
 - Build an unbiased evaluation set with a labeling CLI: stratified sampling, targeted additions for rare cases, label fixes and coverage stats.
 - Classify each email and extract its fields (company, role, requisition id, deadline, requested actions) with one schema-constrained model call, cached on disk.
-- Evaluate the classifier against the labeled set: accuracy, per-category precision and recall, confusions, recruiting recall, and accuracy per sampling bucket.
+- Evaluate the classifier against the labeled set: accuracy, per-category precision and recall, confusions, recruiting recall, and accuracy per sampling bucket. Held-out batches measure accuracy on mail the prompt was never tuned on.
+- Evaluate linking of emails to applications with pairwise precision and recall, listing split and merged applications (the linking rules themselves are in progress).
 
-Next: tuning the classifier prompt against the eval, then linking emails to applications, a chat agent, approval-gated drafting and a daily digest (see [Status](#status)).
+Next: linking emails to applications, then a chat agent, approval-gated drafting and a daily digest (see [Status](#status)).
 
 ## Design principles
 
@@ -55,6 +56,7 @@ Decisions worth knowing before changing code:
 - **Rate limits.** Gmail reports quota exhaustion as 429 or as a 403 with a rate-limit reason. Requests are paced; a quota error pauses every worker for that inbox and halves the pace.
 - **Dependency injection at the network edge.** The sync takes a `MailSource` and the classifier takes its API call as a parameter, so tests run without network, credentials or cost.
 - **Thread context.** The classifier sees the email plus the latest earlier messages of its Gmail thread (same inbox, each truncated), so a short reply or a calendar invite is read in context. The category always describes the newest email.
+- **Linking is rules, not a model.** The classifier already extracts company, role and requisition id; deterministic rules then group emails by conversation, requisition id, company and role, and recruiter address, strongest evidence first. An email the rules can't place stays on its own instead of being guessed into an application.
 - **Classifier cache.** Results are keyed by model, prompt and the input exactly as the model sees it, thread context included. Changing the prompt, a new message in the thread, or re-syncing an email whose cleaned text changed re-classifies it; re-running unchanged costs nothing.
 
 ## Status
@@ -65,8 +67,8 @@ Decisions worth knowing before changing code:
 - [x] Labeling tool with stratified sampling and targeted additions
 - [x] Structured-output classification and extraction with a disk cache
 - [x] Classifier evaluation metrics
-- [ ] Classifier prompt tuned against the eval set (in progress)
-- [ ] Linking emails to the right application, deduplicated across inboxes
+- [x] Classifier prompt tuned against the eval set (96% on the tuned set, 97.5% on a held-out batch of 40)
+- [ ] Linking emails to the right application, deduplicated across inboxes (eval ready, rules in progress)
 - [ ] Chat agent with traced tool calls and a question-level eval suite
 - [ ] Drafting, calendar availability, approval-gated sending
 - [ ] Daily digest and review queue for low-confidence updates
@@ -131,6 +133,7 @@ uv run python label.py search offer   # add rare cases to the queue
 uv run python label.py show <gmail_id>  # read one email in full (ids are in the eval report)
 uv run python eval_classify.py    # classify the eval set and report metrics
 uv run python eval_classify.py --from-position 139   # score only a batch queued later
+uv run python eval_link.py        # link labeled recruiting emails to applications and score it
 ```
 
 ## Development
@@ -145,7 +148,7 @@ cd py
 uv run ruff format                # format
 uv run ruff check                 # lint
 uv run mypy                       # strict type check, tests included
-uv run pytest                     # tests
+uv run pytest --ignore=tests/test_link_exercise.py   # tests (the linking exercise spec runs on its own)
 ```
 
 TypeScript is linted and formatted by [Biome](https://biomejs.dev); Python by [Ruff](https://docs.astral.sh/ruff/). Both are pinned dev dependencies. Type checking is strict on both sides (`tsc` with `noUncheckedIndexedAccess`, `mypy --strict`).
@@ -155,7 +158,7 @@ TypeScript is linted and formatted by [Biome](https://biomejs.dev); Python by [R
 `.github/workflows/ci.yml` runs on pushes and pull requests to `main`, and on demand. It has two jobs:
 
 - **TypeScript:** `npm ci`, type check, Biome, tests.
-- **Python:** `uv sync --locked`, Ruff format and lint, mypy, tests.
+- **Python:** `uv sync --locked`, Ruff format and lint, mypy, tests. The specs for the linking rules in `link.py`, still being implemented, run as a separate step that is expected to fail until then.
 
 Every check runs even if an earlier one fails, so a single run reports all problems; Biome and Ruff findings appear as inline annotations on the diff. CI uses no secrets: Gmail and Claude are replaced by fakes, and databases are temporary. Actions are pinned to commit SHAs and the token is read-only.
 
@@ -201,6 +204,8 @@ py/
   data.py             typed eval-set loader
   classify.py         classification and extraction
   eval_classify.py    evaluation metrics and report
+  link.py             grouping emails into applications
+  eval_link.py        linking metrics and report
   prompts/            classifier system prompt
   tests/
 .github/workflows/    CI
